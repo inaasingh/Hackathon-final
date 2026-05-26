@@ -142,9 +142,9 @@ function StatCards({ cards }: { cards: { label: string; value: number | string; 
 }
 
 // ── Shared: Tab header row ────────────────────────────────────────────────────
-function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, items }: {
+function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, items, hideReport }: {
   subtitle: string; url: string; label: string; isLive: boolean;
-  onReport: () => void; system: string; stats: any; items: any[];
+  onReport: () => void; system: string; stats: any; items: any[]; hideReport?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -161,11 +161,13 @@ function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, item
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={onReport}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold text-white hover:opacity-90 transition"
-          style={{ background: "linear-gradient(135deg,#7c6ef5,#a78ef8)" }}>
-          <BarChart3 className="h-3 w-3" /> Generate Report
-        </button>
+        {!hideReport && (
+          <button onClick={onReport}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold text-white hover:opacity-90 transition"
+            style={{ background: "linear-gradient(135deg,#7c6ef5,#a78ef8)" }}>
+            <BarChart3 className="h-3 w-3" /> Generate Report
+          </button>
+        )}
         <a href={url} target="_blank" rel="noreferrer"
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-medium text-white transition hover:opacity-90"
           style={{ background: "linear-gradient(135deg,#002060,#1a4a8a)" }}>
@@ -286,15 +288,49 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
 
   return (
     <div className="space-y-4">
-      {showReport && <ReportModal system="zoho" stats={liveStats} items={tickets} onClose={() => setShowReport(false)} />}
       {selectedTicket && <TicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />}
+
+      {/* ── Governance Report PPT buttons — TOP PRIORITY ACTION ── */}
+      <div className="rounded-2xl p-4" style={{ background: "rgba(198,193,247,0.06)", border: "1px solid rgba(198,193,247,0.18)" }}>
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4" style={{ color: "#C6C1F7" }} />
+          <span className="text-sm font-semibold" style={{ color: "#C6C1F7" }}>Governance Reports</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full ml-auto" style={{ background: "rgba(198,193,247,0.12)", color: "#9b8ff5" }}>
+            .pptx · ABL format
+          </span>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => downloadGovernancePPT("weekly")}
+            disabled={pptLoading}
+            className="flex-1 inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg,#272437,#C6C1F7 320%)", border: "1px solid rgba(198,193,247,0.4)" }}
+          >
+            {pptLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Weekly Governance Report
+          </button>
+          <button
+            onClick={() => downloadGovernancePPT("monthly")}
+            disabled={pptLoading}
+            className="flex-1 inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg,#272437,#9b8ff5 280%)", border: "1px solid rgba(155,143,245,0.4)" }}
+          >
+            {pptLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Monthly Governance Report
+          </button>
+        </div>
+        <p className="text-[10px] mt-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+          {fetchSource === "live" ? "✓ Synced with live Zoho data" : "Using cached ticket data — start server for live Zoho sync"}
+        </p>
+      </div>
 
       {/* Header */}
       <TabHeader
         subtitle={`${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}`}
         url="https://desk.zoho.in" label="Zoho Desk"
-        isLive={isLive} onReport={() => setShowReport(true)}
+        isLive={isLive} onReport={() => {}}
         system="zoho" stats={liveStats} items={tickets}
+        hideReport
       />
 
       {/* Pipeline status bar */}
@@ -319,34 +355,6 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
             {lastEvent}
           </span>
         )}
-      </div>
-
-      {/* Governance Report PPT buttons */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => downloadGovernancePPT("weekly")}
-          disabled={pptLoading}
-          className="flex-1 inline-flex items-center justify-center gap-2 h-9 px-3 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-          style={{ background: "linear-gradient(135deg,#191723,#C6C1F7 240%)", border: "1px solid rgba(198,193,247,0.35)" }}
-        >
-          {pptLoading
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            : <Download className="h-3.5 w-3.5" />
-          }
-          Weekly Report
-        </button>
-        <button
-          onClick={() => downloadGovernancePPT("monthly")}
-          disabled={pptLoading}
-          className="flex-1 inline-flex items-center justify-center gap-2 h-9 px-3 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-          style={{ background: "linear-gradient(135deg,#191723,#9b8ff5 180%)", border: "1px solid rgba(155,143,245,0.35)" }}
-        >
-          {pptLoading
-            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            : <Download className="h-3.5 w-3.5" />
-          }
-          Monthly Report
-        </button>
       </div>
 
       {/* Drop-zone hint */}
