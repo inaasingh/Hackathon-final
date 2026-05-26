@@ -206,17 +206,261 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
   async function downloadPPT() {
     setPptLoading(true);
     try {
-      const res = await fetch(`${BACKEND}/generate-ppt`, { method: "POST" });
-      if (!res.ok) throw new Error("Server error");
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = "Synapse-Governance-Report.pptx";
-      a.click();
-      URL.revokeObjectURL(url);
+      // Fully client-side — no server needed
+      const { default: PptxGenJS } = await import("pptxgenjs");
+      const pptx = new (PptxGenJS as any)();
+
+      pptx.layout  = "LAYOUT_WIDE";   // 13.33 × 7.5 in
+      pptx.author  = "AbsoluteLabs AI Delivery Copilot";
+      pptx.company = "AbsoluteLabs";
+      pptx.title   = `${activeProject ?? "Mulberry"} — Governance Report`;
+
+      const DARK  = "151023";
+      const CARD  = "1e1a2e";
+      const ACC2  = "2a2440";
+      const PURP  = "7c6ef5";
+      const WHITE = "FFFFFF";
+      const GRAY  = "9b96b8";
+      const RED   = "e05c5c";
+      const AMBER = "f0a500";
+      const GREEN = "52b788";
+      const BLUE  = "4da8da";
+
+      const today = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+      const proj  = activeProject ?? "Mulberry Support Team";
+
+      // ── Helper: section header ──────────────────────────────────────────────
+      function addHeader(slide: any, title: string, lineColor: string) {
+        slide.addText(title, {
+          x: 0.4, y: 0.28, w: 12.5, h: 0.55,
+          fontSize: 26, color: WHITE, bold: true, fontFace: "Segoe UI",
+        });
+        slide.addShape(pptx.ShapeType.rect, {
+          x: 0.4, y: 0.9, w: 12.5, h: 0.04, fill: { color: lineColor },
+        });
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SLIDE 1 — TITLE
+      // ─────────────────────────────────────────────────────────────────────────
+      const s1 = pptx.addSlide();
+      s1.background = { color: DARK };
+
+      s1.addText("AbsoluteLabs", {
+        x: 0.45, y: 0.32, w: 5, h: 0.35,
+        fontSize: 12, color: PURP, bold: true, fontFace: "Segoe UI",
+      });
+      s1.addShape(pptx.ShapeType.rect, {
+        x: 0.45, y: 0.72, w: 1.8, h: 0.04, fill: { color: PURP },
+      });
+      s1.addText("AI Delivery Copilot", {
+        x: 0.45, y: 1.4, w: 12, h: 1.2,
+        fontSize: 44, color: WHITE, bold: true, fontFace: "Segoe UI",
+      });
+      s1.addText("Governance Report", {
+        x: 0.45, y: 2.75, w: 9, h: 0.65,
+        fontSize: 24, color: PURP, fontFace: "Segoe UI",
+      });
+      s1.addText(`${proj}  ·  ${today}`, {
+        x: 0.45, y: 3.48, w: 10, h: 0.42,
+        fontSize: 13, color: GRAY, fontFace: "Segoe UI",
+      });
+
+      // stat boxes
+      const statBoxes = [
+        { label: "Total",    value: liveStats.total,    color: PURP  },
+        { label: "Open",     value: liveStats.open,     color: AMBER },
+        { label: "On Hold",  value: liveStats.onHold,   color: BLUE  },
+        { label: "Resolved", value: liveStats.resolved, color: GREEN },
+        { label: "Urgent",   value: liveStats.urgent,   color: RED   },
+      ];
+      statBoxes.forEach((b, i) => {
+        const bx = 0.45 + i * 2.57;
+        s1.addShape(pptx.ShapeType.rect, {
+          x: bx, y: 5.1, w: 2.4, h: 1.6,
+          fill: { color: CARD }, line: { color: b.color, width: 1.5 },
+        });
+        s1.addText(String(b.value), {
+          x: bx + 0.1, y: 5.25, w: 2.2, h: 0.8,
+          fontSize: 36, color: b.color, bold: true, align: "center", fontFace: "Segoe UI",
+        });
+        s1.addText(b.label, {
+          x: bx + 0.1, y: 6.1, w: 2.2, h: 0.38,
+          fontSize: 10, color: GRAY, align: "center", fontFace: "Segoe UI",
+        });
+      });
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SLIDE 2 — EXECUTIVE SUMMARY
+      // ─────────────────────────────────────────────────────────────────────────
+      const s2 = pptx.addSlide();
+      s2.background = { color: DARK };
+      addHeader(s2, "Executive Summary", PURP);
+
+      const openPct = liveStats.total ? Math.round((liveStats.open / liveStats.total) * 100) : 0;
+      const resPct  = liveStats.total ? Math.round((liveStats.resolved / liveStats.total) * 100) : 0;
+
+      const bullets = [
+        { t: `${liveStats.total} total support tickets tracked for ${proj}`,                      c: WHITE },
+        { t: `${liveStats.open} tickets currently open — ${openPct}% of total workload`,           c: AMBER },
+        { t: `${liveStats.onHold} tickets on hold, pending upstream resolution`,                   c: BLUE  },
+        { t: `${liveStats.resolved} tickets resolved — ${resPct}% resolution rate achieved`,        c: GREEN },
+        { t: `${liveStats.urgent} urgent priority tickets requiring immediate action`,              c: RED   },
+        { t: `AI urgency score average: ${liveStats.avgUrgency}/100 across all open tickets`,      c: GRAY  },
+      ];
+      bullets.forEach((b, i) => {
+        s2.addShape(pptx.ShapeType.rect, {
+          x: 0.4, y: 1.05 + i * 0.72, w: 0.06, h: 0.35,
+          fill: { color: b.c },
+        });
+        s2.addText(b.t, {
+          x: 0.65, y: 1.05 + i * 0.72, w: 12, h: 0.52,
+          fontSize: 14, color: b.c, fontFace: "Segoe UI",
+        });
+      });
+
+      // bottom bar chart
+      const bars = [
+        { label: "Open",     val: liveStats.open,     color: AMBER },
+        { label: "On Hold",  val: liveStats.onHold,   color: BLUE  },
+        { label: "Resolved", val: liveStats.resolved, color: GREEN },
+        { label: "Urgent",   val: liveStats.urgent,   color: RED   },
+      ];
+      const maxV = Math.max(...bars.map(b => b.val), 1);
+      bars.forEach((b, i) => {
+        const bw = Math.max((b.val / maxV) * 5.5, 0.15);
+        const by = 5.15 + i * 0.52;
+        s2.addText(b.label, { x: 0.4, y: by, w: 1.6, h: 0.42, fontSize: 11, color: GRAY, fontFace: "Segoe UI" });
+        s2.addShape(pptx.ShapeType.rect, { x: 2.1, y: by + 0.1, w: bw, h: 0.26, fill: { color: b.color } });
+        s2.addText(String(b.val), {
+          x: 2.2 + bw, y: by, w: 0.6, h: 0.42,
+          fontSize: 11, color: b.color, bold: true, fontFace: "Segoe UI",
+        });
+      });
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SLIDE 3 — OPEN / ESCALATED TICKETS
+      // ─────────────────────────────────────────────────────────────────────────
+      const s3 = pptx.addSlide();
+      s3.background = { color: DARK };
+      addHeader(s3, "Open & Escalated Tickets", RED);
+
+      const openTix = tickets
+        .filter((t: any) => t.status === "Open" || t.priority === "Urgent")
+        .slice(0, 8);
+
+      if (openTix.length > 0) {
+        const hdr = { fill: { color: ACC2 }, bold: true, color: WHITE, fontSize: 10, fontFace: "Segoe UI" };
+        const rows: any[][] = [
+          [
+            { text: "Ticket ID", options: hdr },
+            { text: "Subject",   options: hdr },
+            { text: "Priority",  options: hdr },
+            { text: "Status",    options: hdr },
+            { text: "Assignee",  options: hdr },
+          ],
+          ...openTix.map((t: any) => {
+            const pc = t.priority === "Urgent" ? RED : t.priority === "High" ? AMBER : GRAY;
+            return [
+              { text: t.id ?? "",                                   options: { color: PURP, fontSize: 9 } },
+              { text: (t.subject ?? "").slice(0, 52),              options: { color: WHITE, fontSize: 9 } },
+              { text: t.priority ?? "Medium",                       options: { color: pc, bold: true, fontSize: 9 } },
+              { text: t.status ?? "Open",                           options: { color: AMBER, fontSize: 9 } },
+              { text: (t.assignee ?? "Unassigned").slice(0, 22),   options: { color: GRAY, fontSize: 9 } },
+            ];
+          }),
+        ];
+        s3.addTable(rows, {
+          x: 0.4, y: 1.05, w: 12.5,
+          rowH: 0.44,
+          border: { color: ACC2, pt: 1 },
+          fill: { color: CARD },
+          fontFace: "Segoe UI",
+        });
+      } else {
+        s3.addText("No open tickets — all clear ✓", {
+          x: 0.4, y: 2.5, w: 12.5, h: 1,
+          fontSize: 22, color: GREEN, align: "center", fontFace: "Segoe UI",
+        });
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SLIDE 4 — RESOLVED TICKETS
+      // ─────────────────────────────────────────────────────────────────────────
+      const s4 = pptx.addSlide();
+      s4.background = { color: DARK };
+      addHeader(s4, "Recently Resolved Tickets", GREEN);
+
+      const resTix = tickets
+        .filter((t: any) => ["Resolved", "Closed"].includes(t.status))
+        .slice(0, 8);
+
+      if (resTix.length > 0) {
+        const hdr2 = { fill: { color: ACC2 }, bold: true, color: WHITE, fontSize: 10, fontFace: "Segoe UI" };
+        const rows2: any[][] = [
+          [
+            { text: "Ticket ID", options: hdr2 },
+            { text: "Subject",   options: hdr2 },
+            { text: "Priority",  options: hdr2 },
+            { text: "Assignee",  options: hdr2 },
+          ],
+          ...resTix.map((t: any) => [
+            { text: t.id ?? "",                                 options: { color: PURP, fontSize: 9 } },
+            { text: (t.subject ?? "").slice(0, 62),            options: { color: WHITE, fontSize: 9 } },
+            { text: t.priority ?? "Medium",                     options: { color: GRAY, fontSize: 9 } },
+            { text: (t.assignee ?? "Unassigned").slice(0, 22), options: { color: GRAY, fontSize: 9 } },
+          ]),
+        ];
+        s4.addTable(rows2, {
+          x: 0.4, y: 1.05, w: 12.5,
+          rowH: 0.44,
+          border: { color: ACC2, pt: 1 },
+          fill: { color: CARD },
+          fontFace: "Segoe UI",
+        });
+      } else {
+        s4.addText("No resolved tickets in this period.", {
+          x: 0.4, y: 2.5, w: 12.5, h: 1,
+          fontSize: 18, color: GRAY, align: "center", fontFace: "Segoe UI",
+        });
+      }
+
+      // ─────────────────────────────────────────────────────────────────────────
+      // SLIDE 5 — CLOSING
+      // ─────────────────────────────────────────────────────────────────────────
+      const s5 = pptx.addSlide();
+      s5.background = { color: DARK };
+
+      s5.addShape(pptx.ShapeType.rect, {
+        x: 0, y: 2.7, w: 13.33, h: 2.1, fill: { color: CARD },
+      });
+      s5.addText("AbsoluteLabs", {
+        x: 0.45, y: 0.4, w: 12, h: 0.4,
+        fontSize: 13, color: PURP, bold: true, fontFace: "Segoe UI",
+      });
+      s5.addText("AI Delivery Copilot", {
+        x: 0.45, y: 1.1, w: 12, h: 1,
+        fontSize: 40, color: WHITE, bold: true, fontFace: "Segoe UI",
+      });
+      s5.addText(
+        "This governance report was generated automatically by the AI Delivery Copilot.\nAll data sourced live from Zoho Desk integration.",
+        {
+          x: 0.45, y: 2.85, w: 12.4, h: 0.9,
+          fontSize: 13, color: GRAY, align: "center", fontFace: "Segoe UI",
+        }
+      );
+      s5.addText(`Generated: ${today}  ·  Project: ${proj}`, {
+        x: 0.45, y: 6.75, w: 12.4, h: 0.38,
+        fontSize: 10, color: GRAY, align: "center", fontFace: "Segoe UI",
+      });
+
+      // ── Write file ──────────────────────────────────────────────────────────
+      await pptx.writeFile({
+        fileName: `Synapse-Governance-Report-${proj.replace(/ /g, "-")}.pptx`,
+      });
     } catch (e) {
-      alert("Failed to generate PPT. Make sure the server is running.");
+      console.error("PPT generation error:", e);
+      alert("Failed to generate PPT. Please try again.");
     } finally {
       setPptLoading(false);
     }
