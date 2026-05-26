@@ -2,290 +2,366 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, AlertTriangle, Activity, RefreshCw, ChevronRight } from "lucide-react";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-type NodeSev  = "critical" | "warning" | "recovering" | "unaffected";
-type TotalSev = "critical" | "warning" | "success";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
-interface SNode {
-  id: string; label: string; sub: string;
-  x: number; y: number; w: number; h: number;
-  col: string; icon: string;
+// ── Service-flow nodes ────────────────────────────────────────────────────────
+interface ServiceNode {
+  id:       string;
+  label:    string;
+  sublabel: string;
+  x: number; y: number;
+  color: string;
+  icon:  string;
+  source: string;
 }
 
-interface NImpact { nid: string; sev: NodeSev; note: string }
+// viewBox: 0 0 650 370   node size: 110 × 60
+const NODES: ServiceNode[] = [
+  // col 1 — deployment triggers
+  { id: "azure-deploy",   label: "Release Pipeline",  sublabel: "Azure DevOps · CI/CD",      x: 15,  y: 80,  color: "#52b788", icon: "🚀", source: "AzureDeploy"  },
+  { id: "jira-tracker",   label: "MULE-2391",          sublabel: "Jira · Deployment ticket",   x: 15,  y: 235, color: "#4da8da", icon: "📋", source: "JiraTracker"  },
+  // col 2 — origin service
+  { id: "order-api",      label: "p-orders-mb-api",   sublabel: "Order API · v2.1 schema",    x: 195, y: 158, color: "#f0a500", icon: "🛒", source: "OrderAPI"     },
+  // col 3 — integration orchestration
+  { id: "mulesoft-flow",  label: "MB-005 Flow",        sublabel: "MuleSoft · DataWeave xform", x: 363, y: 65,  color: "#e05c5c", icon: "⚡", source: "MuleSoftFlow" },
+  { id: "oms-service",    label: "OMS Fulfilment",     sublabel: "OMNIX · Order routing",      x: 363, y: 238, color: "#e05c5c", icon: "🏭", source: "OMSService"   },
+  // col 4 — downstream consumers
+  { id: "salesforce-crm", label: "CRM Sync API",       sublabel: "s-salesforce-mb-api",        x: 510, y: 115, color: "#9b8ff5", icon: "☁️", source: "SalesforceCRM"},
+  { id: "zoho-desk",      label: "Zoho Desk",          sublabel: "Support · ticket spike",      x: 510, y: 268, color: "#f0a500", icon: "🎫", source: "ZohoDesk"     },
+];
 
-interface Scenario {
-  id: string; btn: string; trigger: string;
-  sev: TotalSev; conf: number;
-  pred: string; detail: string;
-  impacts: NImpact[];
+// node centre helpers (cx = x + 55,  cy = y + 30)
+function nc(n: ServiceNode) { return { cx: n.x + 55, cy: n.y + 30 }; }
+
+// ── Directed edges ────────────────────────────────────────────────────────────
+const EDGES: Array<{ from: string; to: string; label: string }> = [
+  { from: "azure-deploy",   to: "order-api",      label: "Release-149"    },
+  { from: "jira-tracker",   to: "order-api",      label: "triggers deploy" },
+  { from: "order-api",      to: "mulesoft-flow",  label: "payload v2.1"   },
+  { from: "order-api",      to: "oms-service",    label: "order events"   },
+  { from: "mulesoft-flow",  to: "salesforce-crm", label: "CRM sync"       },
+  { from: "mulesoft-flow",  to: "zoho-desk",      label: "routes tickets" },
+  { from: "oms-service",    to: "zoho-desk",      label: "failures → tix" },
+];
+
+// ── Blast radius map ──────────────────────────────────────────────────────────
+const BLAST_MAP: Record<string, string[]> = {
+  AzureDeploy:   ["azure-deploy", "order-api", "mulesoft-flow", "oms-service", "salesforce-crm", "zoho-desk"],
+  JiraTracker:   ["jira-tracker", "order-api"],
+  OrderAPI:      ["order-api", "mulesoft-flow", "oms-service", "salesforce-crm", "zoho-desk"],
+  MuleSoftFlow:  ["mulesoft-flow", "oms-service", "salesforce-crm", "zoho-desk"],
+  OMSService:    ["oms-service", "zoho-desk"],
+  SalesforceCRM: ["salesforce-crm", "zoho-desk"],
+  ZohoDesk:      ["zoho-desk"],
+};
+
+// ── Per-source blast scenarios ────────────────────────────────────────────────
+const BLAST_SCENARIOS: Record<string, Record<string, { prediction: string; confidence: number; detail: string }>> = {
+  AzureDeploy: {
+    critical: {
+      prediction: "Release-149 introduced a breaking payload schema change to p-orders-mb-api (orderLines → lineItems field rename) without a downstream integration review gate. MuleSoft DataWeave transform MB-005 still references the legacy field name — all order routing is now failing with MULE:TRANSFORMATION errors. Recommend immediate rollback or emergency hotfix to the DataWeave script at line 47.",
+      confidence: 97,
+      detail: "Deploy: Release-149 · 14:02 UTC · Jira: MULE-2391 · schema: v2.0→v2.1 · gate missed: integration-contract-check",
+    },
+    warning: {
+      prediction: "Release-149 is queued for deployment. Pre-deploy contract validation found 2 downstream MuleSoft flows still referencing the legacy orderLines schema field. Deploy should be held pending DataWeave transform update to avoid a transformation cascade failure.",
+      confidence: 88,
+      detail: "Deploy hold: 2 transform references unresolved · MB-005 · MB-019 · estimated fix: 45 min",
+    },
+    success: {
+      prediction: "Release-149 deployed cleanly. All MuleSoft DataWeave transforms validated against the updated p-orders-mb-api v2.1 schema before deploy. OMS, Salesforce CRM, and Zoho Desk all confirmed healthy post-deploy. No ticket spike detected.",
+      confidence: 99,
+      detail: "Deploy time: 3m 51s · integration gates: all passed · schema contract tests: 14/14 green",
+    },
+    info: {
+      prediction: "Azure DevOps release pipeline configuration updated. New integration contract validation gate added to the deployment checklist — downstream MuleSoft schema compatibility will now be checked automatically on every Order API release.",
+      confidence: 92,
+      detail: "Gate added: integration-contract-check · enforced on: p-orders-mb-api · effective: next release",
+    },
+  },
+
+  JiraTracker: {
+    warning: {
+      prediction: "MULE-2391 was closed without the mandatory 'downstream integration reviewed' checklist item being marked complete. This ticket approved the Release-149 deployment that contained the breaking schema change. An audit flag has been raised for the sprint retrospective.",
+      confidence: 91,
+      detail: "MULE-2391 · Sprint 47 · closed by: Arun Patel · missing gate: integration-contract-check",
+    },
+    critical: {
+      prediction: "MULE-2391 Jira webhook is not delivering status updates to the Order API deployment pipeline. Release-149 cannot auto-close the deployment gate — CI/CD pipeline is blocked awaiting Jira confirmation. Manual unblock required.",
+      confidence: 85,
+      detail: "Webhook failures: 7 · last delivery: 41m ago · pipeline: blocked at gate 3/5",
+    },
+    info: {
+      prediction: "MULE-2391 updated with post-incident RCA findings. Root cause documented: schema change deployed without integration contract review. Prevention measures added as subtasks for the next sprint.",
+      confidence: 88,
+      detail: "MULE-2391 · status: RCA Complete · subtasks added: 4 · next sprint: prevention measures",
+    },
+  },
+
+  OrderAPI: {
+    critical: {
+      prediction: "p-orders-mb-api v2.1 schema change has broken all 3 downstream consumers. MuleSoft MB-005 DataWeave transform is throwing MULE:TRANSFORMATION on every order event — 'field not found: orderLines'. OMS fulfilment queue blocked with 67 orders. Salesforce CRM sync halted. Checkout abandonment rate up 38%. Rollback or DataWeave hotfix required immediately.",
+      confidence: 95,
+      detail: "Error rate: 100% on /api/orders · schema: v2.1 (lineItems) · consumers broken: 3/3 · orders blocked: 67",
+    },
+    warning: {
+      prediction: "p-orders-mb-api p95 latency at 2.3s — above the 1.5s SLA. MuleSoft MB-005 flow showing increased transformation processing time. OMS fulfilment queue growing. Salesforce CRM sync accumulating a 6-minute backlog. Checkout is functional but degraded.",
+      confidence: 86,
+      detail: "p95: 2.3s · p99: 4.8s · OMS queue depth: 14 · Salesforce lag: 6min",
+    },
+    success: {
+      prediction: "p-orders-mb-api fully healthy post-incident recovery. DataWeave transform MB-005 hotfixed — all 67 blocked OMS orders replayed from the dead-letter queue. Salesforce CRM backfilled with 847 stale records. Zoho Desk ticket creation rate returned to baseline.",
+      confidence: 99,
+      detail: "Recovery complete · 67 orders replayed · 847 SF records backfilled · checkout error rate: 0%",
+    },
+  },
+
+  MuleSoftFlow: {
+    critical: {
+      prediction: "MB-005 Order→OMS integration flow is in FAILED state. DataWeave transformation at line 47 throws MULE:TRANSFORMATION — 'payload.orderLines[0]' not found in the updated v2.1 schema. Circuit breaker opened after 8 consecutive failures. All downstream order routing to OMS and Salesforce CRM sync are blocked. Manual fix: update DataWeave script reference from 'orderLines' to 'lineItems'.",
+      confidence: 96,
+      detail: "Flow: MB-005 · error: MULE:TRANSFORMATION line 47 · circuit breaker: OPEN · failures: 67 · queue: dead-letter",
+    },
+    warning: {
+      prediction: "MB-005 flow processing latency elevated — DataWeave transformation time has increased 3× in the last 15 minutes. OMS routing is processing but accumulating a backlog. Salesforce CRM sync running 8 minutes behind. Schema field ambiguity in the transform may be causing repeated re-parsing.",
+      confidence: 84,
+      detail: "Transform time: avg 2.1s (baseline: 0.7s) · OMS queue: 23 pending · SF lag: 8min",
+    },
+    success: {
+      prediction: "MB-005 DataWeave transform patched — field reference updated from 'payload.orderLines[0]' to 'payload.lineItems[0]'. Flow restarted cleanly. Dead-letter queue replay triggered — all 67 blocked orders are now routing to OMS. Salesforce CRM sync has resumed.",
+      confidence: 98,
+      detail: "Hotfix: DataWeave line 47 · flow restarted: 14:38 UTC · DLQ replay: 67/67 processed · SF sync: resumed",
+    },
+    info: {
+      prediction: "MB-005 flow configuration reviewed. DataWeave schema validation added as a pre-flight check — transformation will now fail-fast with a clear error message if the Order API schema version does not match the expected contract.",
+      confidence: 87,
+      detail: "Config updated: schema validation added · contract version pinned: v2.1 · alert on mismatch: enabled",
+    },
+  },
+
+  OMSService: {
+    critical: {
+      prediction: "OMNIX OMS fulfilment queue is blocked. 67 order events are stuck in the dead-letter queue — no routing events are being received from MuleSoft MB-005 following the DataWeave transformation failure. Warehouse pick-and-pack operations have no new orders. Customer order confirmations are failing, directly driving the Zoho Desk ticket spike.",
+      confidence: 93,
+      detail: "OMS queue: 67 orders blocked · DLQ depth: 67 · warehouse: idle · customer impact: order confirmation failure",
+    },
+    warning: {
+      prediction: "OMNIX OMS receiving order routing events intermittently. 14 orders queued with delayed processing — average fulfilment delay now 18 minutes above SLA. Despatching team has been manually reviewing the queue. MuleSoft flow intermittent failures are the upstream cause.",
+      confidence: 82,
+      detail: "Queue depth: 14 · processing delay: +18min vs SLA · manual review: active",
+    },
+    success: {
+      prediction: "OMNIX OMS fulfilment queue fully recovered. All 67 blocked orders replayed successfully from the MuleSoft dead-letter queue. Warehouse operations have resumed normal throughput. No orders were lost — all customers will receive their original confirmation.",
+      confidence: 99,
+      detail: "DLQ replay: 67/67 success · warehouse throughput: normal · no orders lost · SLA: recovering",
+    },
+  },
+
+  SalesforceCRM: {
+    critical: {
+      prediction: "s-salesforce-mb-api CRM sync has halted. Order events are not reaching Salesforce because the upstream MuleSoft MB-005 transformation is failing. 847 order records have not been updated in the last 2 hours. Sales dashboards showing incorrect pipeline figures. Revenue reporting is stale. Billing integration may produce incorrect invoices if not resolved.",
+      confidence: 91,
+      detail: "Sync halted: 14:06 UTC · records stale: 847 · pipeline delta: £142K unreported · billing risk: active",
+    },
+    warning: {
+      prediction: "Salesforce CRM sync running 12 minutes behind due to upstream MuleSoft latency. 142 order records are queued for update. API rate limit currently at 71% of daily allocation. Revenue figures will reconcile automatically once the upstream flow normalises — no manual action required yet.",
+      confidence: 86,
+      detail: "Sync lag: 12min · queued records: 142 · API usage: 71,200/100,000 · rate cap risk: 3h",
+    },
+    success: {
+      prediction: "Salesforce CRM sync fully recovered. 847 stale records backfilled via manual sync trigger. Pipeline reporting and revenue dashboards now accurate. Zoho Desk open tickets linked to the affected orders have been updated with resolution notes automatically.",
+      confidence: 99,
+      detail: "Backfill: 847/847 records · sync latency: 0.3s · API rate: 28% used · dashboards: accurate",
+    },
+    info: {
+      prediction: "Salesforce API rate limit at 54% of daily allocation — well within threshold. CRM sync operating normally. 312 order records updated in the last hour. No action required.",
+      confidence: 94,
+      detail: "API calls: 54,200/100,000 · last sync: 2min ago · record match: 100% · zero conflicts",
+    },
+  },
+
+  ZohoDesk: {
+    critical: {
+      prediction: "Zoho Desk is experiencing a 340% ticket spike. 31 new 'Order not confirmed' tickets created in the last 45 minutes — all classified Urgent by the Groq AI pipeline with urgency scores 88–95. The Mulberry and Clarks accounts have both breached their SLA response window. The ticket surge is a direct downstream symptom of the OMS fulfilment failure caused by the MuleSoft schema mismatch.",
+      confidence: 94,
+      detail: "Ticket spike: 31 in 45min (+340% baseline) · urgency avg: 91/100 · SLA breach: 2 accounts · cause: OMS block",
+    },
+    warning: {
+      prediction: "Zoho Desk ticket volume elevated — 12 new checkout-related tickets in the last 30 minutes, 2× above baseline. AI classification is routing all to Platform Engineering. Response time SLAs are at 68% utilisation. If the upstream OMS failure is not resolved within 30 minutes, SLA breach becomes likely.",
+      confidence: 81,
+      detail: "Tickets: 12 in 30min (+100% baseline) · SLA utilisation: 68% · breach window: 30min",
+    },
+    success: {
+      prediction: "Zoho Desk ticket volume has returned to baseline. The 31 incident tickets have been auto-resolved by the pipeline with a root cause explanation drafted by Groq AI. Customer communications have been sent to all affected accounts. Post-incident review ticket created in Jira.",
+      confidence: 98,
+      detail: "31 tickets resolved · auto-response sent: 31/31 · Jira PIR: MULE-2394 · ticket rate: baseline",
+    },
+    info: {
+      prediction: "Zoho Desk operating normally. AI pipeline classifying and routing tickets within SLA. Current open ticket count: 7. Average Groq urgency score: 64/100. No unusual patterns detected.",
+      confidence: 96,
+      detail: "Open: 7 · avg urgency: 64 · SLA compliance: 97.4% · pipeline: live",
+    },
+  },
+};
+
+interface BlastResult {
+  source:        string;
+  affectedNodes: string[];
+  affectedCount: number;
+  prediction:    string;
+  severity:      string;
+  confidence:    number;
+  detail?:       string;
 }
 
-// ── Colour maps ───────────────────────────────────────────────────────────────
-const SC: Record<NodeSev, string | null> = {
-  critical:   "#e05c5c",
-  warning:    "#f0a500",
-  recovering: "#52b788",
-  unaffected: null,
-};
-const TC: Record<TotalSev, string> = {
-  critical: "#e05c5c",
-  warning:  "#f0a500",
-  success:  "#52b788",
-};
-const SL: Record<NodeSev, string> = {
-  critical:   "CRIT",
-  warning:    "WARN",
-  recovering: "OK",
-  unaffected: "—",
-};
-
-// ── Node centre helper ────────────────────────────────────────────────────────
-function nc(n: SNode) { return { cx: n.x + n.w / 2, cy: n.y + n.h / 2 }; }
-
-// ── Service nodes  (ViewBox 0 0 760 385) ─────────────────────────────────────
-//   Col 1 (triggers)  x=10
-//   Col 2 (hub)       x=205
-//   Col 3 (services)  x=415
-//   Col 4 (outcomes)  x=605
-const NODES: SNode[] = [
-  // --- triggers ---
-  { id:"azure",   label:"Azure DevOps",   sub:"CI/CD · Release pipeline",   x:10,  y:22,  w:130, h:56, col:"#0078d4", icon:"🚀" },
-  { id:"datadog", label:"Datadog",        sub:"APM · Metrics · Alerting",   x:10,  y:258, w:130, h:56, col:"#9b59b6", icon:"📊" },
-  // --- hub ---
-  { id:"mulesoft",label:"MuleSoft",       sub:"Integration Platform · ESB", x:205, y:150, w:150, h:68, col:"#00a1e0", icon:"⚡" },
-  // --- downstream services ---
-  { id:"oms",     label:"OMS API",        sub:"prod-s-oms-mb-api",          x:415, y:18,  w:130, h:56, col:"#f0a500", icon:"🏭" },
-  { id:"sfsc",    label:"Salesforce",     sub:"prod-s-sfsc-order-mb-api",   x:415, y:108, w:130, h:56, col:"#00a1e0", icon:"☁️" },
-  { id:"receipt", label:"Receipt API",    sub:"prod-p-receipt-mb-api",      x:415, y:198, w:130, h:56, col:"#52b788", icon:"🧾" },
-  { id:"partner", label:"Partner API",    sub:"prod-s-partner-mb-api",      x:415, y:288, w:130, h:56, col:"#9b8ff5", icon:"🤝" },
-  // --- outcomes ---
-  { id:"jira",    label:"Jira",           sub:"Incident · Sprint tracking", x:605, y:18,  w:130, h:56, col:"#0052cc", icon:"📋" },
-  { id:"zoho",    label:"Zoho Desk",      sub:"Mulberry Support · 454 open",x:605, y:262, w:130, h:56, col:"#e8503a", icon:"🎫" },
-];
-
-// ── Edges ─────────────────────────────────────────────────────────────────────
-type EStyle = "normal" | "monitor" | "outcome";
-const EDGES: Array<{ from: string; to: string; lbl: string; sty: EStyle; healthy?: boolean }> = [
-  { from:"azure",   to:"mulesoft", lbl:"deploy trigger",  sty:"normal"  },
-  { from:"datadog", to:"mulesoft", lbl:"monitors",        sty:"monitor" },
-  { from:"mulesoft",to:"oms",      lbl:"MB20.21 sync",    sty:"normal"  },
-  { from:"mulesoft",to:"sfsc",     lbl:"order sync",      sty:"normal"  },
-  { from:"mulesoft",to:"receipt",  lbl:"receipt gen",     sty:"normal"  },
-  // Partner feed is healthy baseline — always shown green
-  { from:"mulesoft",to:"partner",  lbl:"partner events ✓",sty:"normal", healthy:true },
-  { from:"oms",     to:"jira",     lbl:"auto-incident",   sty:"outcome" },
-  { from:"sfsc",    to:"zoho",     lbl:"CRM → tickets",   sty:"outcome" },
-];
-
-// ── Blast scenarios (realistic, per-node severity) ────────────────────────────
-const SCENARIOS: Scenario[] = [
-  // ① Breaking schema deploy
-  {
-    id:"schema-deploy", btn:"Schema Deploy", trigger:"azure",
-    sev:"critical", conf:97,
-    pred:"Release-149 deployed a breaking payload schema change — field 'orderLines' renamed to 'lineItems' without an integration contract review gate. MuleSoft MB20.21 (OMS to SFSC Order Sync) is throwing MULE:TRANSFORMATION on every order event. OMS queue blocked with 67 orders. Salesforce CRM sync halted. Receipt API degraded — partial data only. Partner feeds unaffected. Datadog P1 fired.",
-    detail:"Ticket #441376 · prod-s-oms-mb-api · MB20.21 · MULE:TRANSFORMATION error · Orders blocked: 67 · Salesforce: 0 records synced",
-    impacts:[
-      { nid:"azure",   sev:"critical",   note:"Release-149 introduced breaking OMS schema change, gate missed" },
-      { nid:"mulesoft",sev:"critical",   note:"MB20.21 throwing MULE:TRANSFORMATION on every order event" },
-      { nid:"oms",     sev:"critical",   note:"Queue blocked · 67 orders in dead-letter queue" },
-      { nid:"sfsc",    sev:"critical",   note:"OMS-to-SFSC sync halted · 0 records reaching Salesforce" },
-      { nid:"receipt", sev:"warning",    note:"Partial order data · receipts generating with missing fields" },
-      { nid:"partner", sev:"unaffected", note:"Isolated feed — no impact from schema change" },
-      { nid:"datadog", sev:"critical",   note:"P1 alert fired · 8 monitors in RED state" },
-      { nid:"jira",    sev:"critical",   note:"MULE-2391 auto-created · P1 · assigned: Platform Eng" },
-      { nid:"zoho",    sev:"critical",   note:"+34 tickets in 45 min · SLA breached for 2 accounts" },
-    ],
-  },
-  // ② MuleSoft runtime down — everything breaks
-  {
-    id:"mulesoft-down", btn:"MuleSoft Down", trigger:"mulesoft",
-    sev:"critical", conf:99,
-    pred:"MuleSoft Runtime is completely unreachable — all 4 integration flows offline simultaneously. No order events routing to OMS or Salesforce. Receipt generation blocked entirely. Partner API feeds dead. Total integration layer outage affecting every Mulberry downstream system at once.",
-    detail:"Runtime unreachable · 4/4 flows ERROR: prod-s-oms-mb-api · prod-s-sfsc-order-mb-api · prod-p-receipt-mb-api · prod-s-partner-mb-api",
-    impacts:[
-      { nid:"azure",   sev:"unaffected", note:"Pipeline healthy — unrelated to runtime outage" },
-      { nid:"mulesoft",sev:"critical",   note:"Runtime DOWN · 4/4 flows in ERROR state" },
-      { nid:"oms",     sev:"critical",   note:"No inbound events from MuleSoft · queue completely frozen" },
-      { nid:"sfsc",    sev:"critical",   note:"SFSC order sync fully halted" },
-      { nid:"receipt", sev:"critical",   note:"Receipt generation blocked entirely" },
-      { nid:"partner", sev:"critical",   note:"All partner feeds dead" },
-      { nid:"datadog", sev:"critical",   note:"P0 alert fired · 12 monitors RED · on-call paged" },
-      { nid:"jira",    sev:"critical",   note:"P0 incident auto-raised · all-hands response" },
-      { nid:"zoho",    sev:"critical",   note:"Ticket flood across all categories" },
-    ],
-  },
-  // ③ OMS TECHERROR (matches real ticket #441368 / #441376)
-  {
-    id:"oms-error", btn:"OMS Sync Error", trigger:"oms",
-    sev:"critical", conf:94,
-    pred:"prod-s-oms-mb-api TECHERROR — business exception in MB20.21 OMS-to-SFSC sync. Error: 'First Name: data value too long (max length=20)'. Customer data failing field validation in Salesforce. Receipt API reads from a separate OMS endpoint — fully unaffected. Partner API not impacted. Mulberry Support queue at 454 open tickets.",
-    detail:"Ticket #441368 · TECHERROR · MB20.21 OMS→SFSC · order TSB185361-rcvd · First Name > 20 chars · SFSC httpStatusCode: 201 · body: errors present · 0 records written",
-    impacts:[
-      { nid:"azure",   sev:"unaffected", note:"No deployment in progress" },
-      { nid:"mulesoft",sev:"warning",    note:"MB20.21 flow in retry loop · 3 consecutive TECHERROR" },
-      { nid:"oms",     sev:"critical",   note:"TECHERROR · field validation failure · TSB prefix orders blocked" },
-      { nid:"sfsc",    sev:"critical",   note:"Rejecting all affected records · 0 orders synced for TSB prefix" },
-      { nid:"receipt", sev:"unaffected", note:"Reads from separate OMS endpoint · fully operational" },
-      { nid:"partner", sev:"unaffected", note:"No impact" },
-      { nid:"datadog", sev:"warning",    note:"OMS error rate alert fired · P3 severity" },
-      { nid:"jira",    sev:"warning",    note:"P3 ticket MULE-2394 raised · Business Exception" },
-      { nid:"zoho",    sev:"critical",   note:"#441368 #441376 open · 454 total in Mulberry Support" },
-    ],
-  },
-  // ④ Salesforce slow — partial blast, other services fine
-  {
-    id:"sfsc-slow", btn:"Salesforce Slow", trigger:"sfsc",
-    sev:"warning", conf:87,
-    pred:"prod-s-sfsc-order-mb-api response times elevated to 4.2s (SLA: 2s). MuleSoft SFSC flow accumulating a 12-minute sync backlog — 142 order records queued. OMS, Receipt, and Partner APIs are all fully operational and unaffected. Revenue dashboard showing stale data. SLA breach risk in ~25 minutes if not resolved.",
-    detail:"prod-s-sfsc-order-mb-api · p95: 4.2s vs 2s SLA · sync lag: 12 min · queued: 142 records · API rate: 71% · no data loss yet",
-    impacts:[
-      { nid:"azure",   sev:"unaffected", note:"No active deployment" },
-      { nid:"mulesoft",sev:"warning",    note:"SFSC flow backing up · other 3 flows completely healthy" },
-      { nid:"oms",     sev:"unaffected", note:"Processing orders normally — fully operational" },
-      { nid:"sfsc",    sev:"warning",    note:"p95 latency 4.2s · SLA 2s · breach imminent in ~25 min" },
-      { nid:"receipt", sev:"unaffected", note:"Generating receipts normally" },
-      { nid:"partner", sev:"unaffected", note:"Healthy" },
-      { nid:"datadog", sev:"warning",    note:"SLA latency threshold alert · amber state" },
-      { nid:"jira",    sev:"unaffected", note:"Below P3 threshold — no incident raised" },
-      { nid:"zoho",    sev:"warning",    note:"3 tickets: delayed order confirmation emails" },
-    ],
-  },
-  // ⑤ Receipt API isolated failure (real ticket #441392)
-  {
-    id:"receipt-error", btn:"Receipt Error", trigger:"receipt",
-    sev:"warning", conf:88,
-    pred:"prod-p-receipt-mb-api TECHERROR — custom application notification. Receipt generation failing for all Mulberry orders. OMS and Salesforce are both healthy and unaffected. Partner API not impacted. Blast radius is fully isolated — customers complete checkout successfully but receive no email receipt.",
-    detail:"Ticket #441392 · prod-p-receipt-mb-api · TECHERROR · receipt delivery failure · OMS/SFSC/partner flows all healthy",
-    impacts:[
-      { nid:"azure",   sev:"unaffected", note:"No deployment active" },
-      { nid:"mulesoft",sev:"warning",    note:"Receipt flow in error · other 3 flows healthy" },
-      { nid:"oms",     sev:"unaffected", note:"Fully operational" },
-      { nid:"sfsc",    sev:"unaffected", note:"Fully operational" },
-      { nid:"receipt", sev:"critical",   note:"TECHERROR · receipts not generating for any Mulberry order" },
-      { nid:"partner", sev:"unaffected", note:"Not affected" },
-      { nid:"datadog", sev:"warning",    note:"Receipt error rate alert · isolated spike" },
-      { nid:"jira",    sev:"unaffected", note:"Below P3 threshold — monitoring only" },
-      { nid:"zoho",    sev:"warning",    note:"Ticket #441392 open · receipt complaint cluster" },
-    ],
-  },
-  // ⑥ Full recovery
-  {
-    id:"recovery", btn:"Full Recovery", trigger:"azure",
-    sev:"success", conf:99,
-    pred:"Hotfix deployed — Release-149a. DataWeave transform MB20.21 patched: 'orderLines' → 'lineItems', First Name field now truncated to 20-char max before Salesforce sync. All 4 MuleSoft flows restarted cleanly. 67 blocked orders replayed from dead-letter queue. Salesforce CRM backfilled with 847 records. All Datadog monitors green. Zoho Desk ticket volume back at baseline.",
-    detail:"Hotfix: Release-149a · MB20.21 DataWeave patched · 67 DLQ orders replayed · 847 SF records backfilled · All monitors: GREEN",
-    impacts:[
-      { nid:"azure",   sev:"recovering", note:"Release-149a deployed cleanly · all integration gates passed" },
-      { nid:"mulesoft",sev:"recovering", note:"All 4 flows RUNNING · DLQ replay: 67/67 complete" },
-      { nid:"oms",     sev:"recovering", note:"67 orders replayed · queue clear · normal throughput" },
-      { nid:"sfsc",    sev:"recovering", note:"847 records backfilled · sync latency: 0.3s" },
-      { nid:"receipt", sev:"recovering", note:"Receipt generation fully resumed" },
-      { nid:"partner", sev:"recovering", note:"Partner feeds live" },
-      { nid:"datadog", sev:"recovering", note:"All 12 monitors back to GREEN" },
-      { nid:"jira",    sev:"recovering", note:"MULE-2391 resolved · PIR scheduled for sprint retro" },
-      { nid:"zoho",    sev:"recovering", note:"31 incident tickets auto-resolved · baseline restored" },
-    ],
-  },
-];
-
-// ── Animated pulse dot along an edge ─────────────────────────────────────────
-function PulseDot({ edgeId, color }: { edgeId: string; color: string }) {
-  const dur = useRef((1.2 + Math.random() * 0.8).toFixed(2));
+// ── Animated pulse dot along edge ────────────────────────────────────────────
+function PulseDot({ from, to, color }: { from: ServiceNode; to: ServiceNode; color: string }) {
+  const dur = (1.4 + Math.random() * 0.7).toFixed(2);
   return (
     <circle r="3.5" fill={color} opacity="0.9">
-      <animateMotion dur={`${dur.current}s`} repeatCount="indefinite" calcMode="linear">
-        <mpath xlinkHref={`#${edgeId}`} />
+      <animateMotion dur={`${dur}s`} repeatCount="indefinite" calcMode="linear">
+        <mpath xlinkHref={`#edge-${from.id}-${to.id}`} />
       </animateMotion>
     </circle>
   );
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
-  const [active,    setActive]    = useState<Scenario | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [lastEvId,  setLastEvId]  = useState<string | null>(null);
-  const [hovered,   setHovered]   = useState<string | null>(null);
+  const [blastResult,  setBlastResult]  = useState<BlastResult | null>(null);
+  const [activeNodes,  setActiveNodes]  = useState<Set<string>>(new Set());
+  const [analyzing,    setAnalyzing]    = useState(false);
+  const [lastEventId,  setLastEventId]  = useState<string | null>(null);
+  const [hovered,      setHovered]      = useState<string | null>(null);
   const prevLenRef = useRef(0);
 
   // Auto-trigger on new live event
   useEffect(() => {
     if (!liveEvents.length) return;
     const newest = liveEvents[0];
-    if (!newest?.id || newest.id === lastEvId) return;
+    if (!newest?.id || newest.id === lastEventId) return;
     if (liveEvents.length <= prevLenRef.current) return;
     prevLenRef.current = liveEvents.length;
-    setLastEvId(newest.id);
-    const map: Record<string, string> = {
-      Azure: "schema-deploy", MuleSoft: "mulesoft-down",
-      Jira:  "oms-error",     Zoho:     "receipt-error",
+    setLastEventId(newest.id);
+    // Map generic event sources to our node sources
+    const srcMap: Record<string, string> = {
+      Azure:      "AzureDeploy",
+      MuleSoft:   "MuleSoftFlow",
+      Jira:       "JiraTracker",
+      Zoho:       "ZohoDesk",
+      Salesforce: "SalesforceCRM",
+      OrderAPI:   "OrderAPI",
     };
-    const s = SCENARIOS.find(sc => sc.id === (map[newest.source] ?? "oms-error")) ?? SCENARIOS[0];
-    trigger(s);
+    const mappedSrc = srcMap[newest.source] ?? "OrderAPI";
+    runBlastRadius(mappedSrc, newest.sev, newest.summary);
   }, [liveEvents.length]);
 
-  function trigger(s: Scenario) {
+  async function runBlastRadius(source: string, sev: string, summary: string) {
     setAnalyzing(true);
-    setTimeout(() => { setActive(s); setAnalyzing(false); }, 500);
+    const affected = BLAST_MAP[source] ?? ["order-api"];
+    setActiveNodes(new Set(affected));
+    try {
+      const r = await fetch(`${BACKEND}/blast-radius`, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ source, sev, summary, affectedNodes: affected }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setBlastResult(data);
+      } else {
+        setBlastResult(mockBlast(source, affected, sev));
+      }
+    } catch {
+      setBlastResult(mockBlast(source, affected, sev));
+    }
+    setAnalyzing(false);
   }
 
-  function handleNodeClick(node: SNode) {
-    const s = SCENARIOS.find(sc => sc.trigger === node.id);
-    if (s) trigger(s);
+  function mockBlast(source: string, affected: string[], sev: string): BlastResult {
+    const scene = BLAST_SCENARIOS[source]?.[sev];
+    const fallback: Record<string, string> = {
+      critical: "Critical failure propagating through the integration layer — downstream consumers are affected. Immediate investigation required.",
+      warning:  "Degraded performance detected upstream. Downstream services are accumulating backlog.",
+      success:  "All systems healthy across the integration chain. No downstream impact detected.",
+      info:     "Configuration change propagated. Downstream services unaffected.",
+    };
+    return {
+      source,
+      affectedNodes: affected,
+      affectedCount: affected.length,
+      prediction: scene?.prediction ?? fallback[sev] ?? fallback.info,
+      severity:   sev,
+      confidence: scene?.confidence ?? (sev === "critical" ? 93 : sev === "warning" ? 82 : 88),
+      detail:     scene?.detail,
+    };
   }
 
-  // Per-node helpers
-  function impact(nid: string) { return active?.impacts.find(i => i.nid === nid) ?? null; }
-  function isActive(nid: string) { const i = impact(nid); return !!i && i.sev !== "unaffected"; }
-  function nodColor(nid: string) { const i = impact(nid); return (i && SC[i.sev]) ?? null; }
-  function isDimmed(nid: string) { return !!active && !isActive(nid); }
+  const NODE_SOURCE_MAP: Record<string, string> = {
+    "azure-deploy":   "AzureDeploy",
+    "jira-tracker":   "JiraTracker",
+    "order-api":      "OrderAPI",
+    "mulesoft-flow":  "MuleSoftFlow",
+    "oms-service":    "OMSService",
+    "salesforce-crm": "SalesforceCRM",
+    "zoho-desk":      "ZohoDesk",
+  };
 
-  // Edge color: use the "to" node's severity
-  function edgeCol(from: string, to: string): string | null {
-    if (!active) return null;
-    const fi = impact(from); const ti = impact(to);
-    if (!fi || !ti || fi.sev === "unaffected" || ti.sev === "unaffected") return null;
-    return SC[ti.sev] ?? null;
+  const NODE_DEFAULT_SEV: Record<string, string> = {
+    "azure-deploy":   "critical",
+    "jira-tracker":   "warning",
+    "order-api":      "critical",
+    "mulesoft-flow":  "critical",
+    "oms-service":    "critical",
+    "salesforce-crm": "warning",
+    "zoho-desk":      "critical",
+  };
+
+  function handleNodeClick(node: ServiceNode) {
+    const src = NODE_SOURCE_MAP[node.id] ?? node.source;
+    const sev = NODE_DEFAULT_SEV[node.id] ?? "warning";
+    const affected = BLAST_MAP[src] ?? [node.id];
+    setActiveNodes(new Set(affected));
+    setBlastResult(mockBlast(src, affected, sev));
   }
 
-  const overallColor = active ? TC[active.sev] : "#9b8ff5";
-  const affectedCount = active ? active.impacts.filter(i => i.sev !== "unaffected").length : 0;
+  const sevColor: Record<string, string> = {
+    critical: "#e05c5c", warning: "#f0a500", success: "#52b788", info: "#4da8da",
+  };
+  const blastColor = blastResult ? (sevColor[blastResult.severity] ?? "#9b8ff5") : "#9b8ff5";
 
   return (
     <div className="rounded-2xl overflow-hidden"
-      style={{ background:"var(--card)", border:"1px solid rgba(124,110,245,0.11)", boxShadow:"0 1px 4px rgba(124,110,245,0.06)" }}>
+      style={{ background: "var(--card)", border: "1px solid rgba(124,110,245,0.11)", boxShadow: "0 1px 4px rgba(124,110,245,0.06)" }}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-5 py-4"
-        style={{ borderBottom:"1px solid rgba(124,110,245,0.08)" }}>
+        style={{ borderBottom: "1px solid rgba(124,110,245,0.08)" }}>
         <div>
-          <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color:"var(--foreground)" }}>
+          <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--foreground)" }}>
             <Zap className="h-4 w-4 text-[#9b8ff5]" />
-            Integration Dependency Graph
-            {active && (
+            Integration Flow Dependency Map
+            {activeNodes.size > 0 && (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full animate-pulse"
-                style={{ background:`${overallColor}18`, color:overallColor }}>
-                <span className="h-1.5 w-1.5 rounded-full inline-block" style={{ background:overallColor }} />
+                style={{ background: `${blastColor}18`, color: blastColor }}>
+                <span className="h-1.5 w-1.5 rounded-full inline-block" style={{ background: blastColor }} />
                 BLAST RADIUS ACTIVE
               </span>
             )}
           </h2>
-          <p className="text-xs mt-0.5" style={{ color:"var(--muted-foreground)" }}>
-            Real Mulberry topology · MuleSoft as integration hub · click any node to trace cascade impact
+          <p className="text-xs mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+            Service-flow topology · schema mismatch origin · click any node to trace AI blast radius
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {active && (
-            <button onClick={() => setActive(null)}
+          {activeNodes.size > 0 && (
+            <button onClick={() => { setActiveNodes(new Set()); setBlastResult(null); }}
               className="text-xs px-3 py-1.5 rounded-xl transition hover:bg-secondary"
-              style={{ border:"1px solid rgba(124,110,245,0.15)", color:"var(--muted-foreground)" }}>
+              style={{ border: "1px solid rgba(124,110,245,0.15)", color: "var(--muted-foreground)" }}>
               Clear
             </button>
           )}
           {analyzing && (
-            <div className="flex items-center gap-1.5 text-xs" style={{ color:"#9b8ff5" }}>
+            <div className="flex items-center gap-1.5 text-xs" style={{ color: "#9b8ff5" }}>
               <RefreshCw className="h-3 w-3 animate-spin" /> Analysing…
             </div>
           )}
@@ -294,332 +370,245 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
 
       <div className="p-5 flex flex-col gap-4">
 
-        {/* ── SVG Dependency Graph ── */}
+        {/* ── SVG graph ── */}
         <div className="relative rounded-xl overflow-hidden"
-          style={{ background:"var(--background)", border:"1px solid rgba(124,110,245,0.08)" }}>
-          <svg viewBox="0 0 760 385" style={{ width:"100%", display:"block" }}>
+          style={{ background: "var(--background)", border: "1px solid rgba(124,110,245,0.08)" }}>
+          <svg viewBox="0 0 650 375" style={{ width: "100%", display: "block" }}>
             <defs>
-              {/* Arrow markers per severity */}
-              <marker id="arr"   markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+              <marker id="arr"  markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
                 <path d="M0,0 L0,5 L7,2.5 z" fill="rgba(124,110,245,0.35)" />
               </marker>
-              <marker id="arr-c" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
-                <path d="M0,0 L0,5 L7,2.5 z" fill="#e05c5c" />
-              </marker>
-              <marker id="arr-w" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
-                <path d="M0,0 L0,5 L7,2.5 z" fill="#f0a500" />
-              </marker>
-              <marker id="arr-g" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
-                <path d="M0,0 L0,5 L7,2.5 z" fill="#52b788" />
+              <marker id="arr-a" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto">
+                <path d="M0,0 L0,5 L7,2.5 z" fill={blastColor} />
               </marker>
               <filter id="glow">
-                <feGaussianBlur stdDeviation="3" result="b" />
-                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
               <filter id="glow-soft">
-                <feGaussianBlur stdDeviation="1.5" result="b" />
-                <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                <feGaussianBlur stdDeviation="1.5" result="blur" />
+                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
               </filter>
             </defs>
 
-            {/* ── Column headers ── */}
-            {[
-              { x:75,  label:"TRIGGERS" },
-              { x:280, label:"INTEGRATION HUB" },
-              { x:480, label:"DOWNSTREAM SERVICES" },
-              { x:670, label:"OUTCOMES" },
-            ].map(({ x, label }) => (
-              <text key={label} x={x} y={11} textAnchor="middle" fontSize="7" fontWeight="600"
-                fill="rgba(124,110,245,0.38)" fontFamily="system-ui,sans-serif" letterSpacing="0.5">
-                {label}
-              </text>
-            ))}
+            {/* ── Faint schema-change annotation ── */}
+            <text x="195" y="148" fontSize="7.5" fill="rgba(240,165,0,0.55)" fontFamily="system-ui,sans-serif" fontStyle="italic">
+              ⚠ schema v2.0 → v2.1
+            </text>
+            <text x="363" y="55" fontSize="7.5" fill="rgba(224,92,92,0.55)" fontFamily="system-ui,sans-serif" fontStyle="italic">
+              ✕ MULE:TRANSFORMATION line 47
+            </text>
 
             {/* ── Edges ── */}
             {EDGES.map(edge => {
               const fn = NODES.find(n => n.id === edge.from)!;
               const tn = NODES.find(n => n.id === edge.to)!;
-              const a  = nc(fn), b = nc(tn);
-
-              const eColor = edgeCol(edge.from, edge.to);
-              // healthy edges always show green, even with no active scenario
-              const isHealthy    = !!edge.healthy && !active;
-              const isEdgeActive = !!eColor || isHealthy;
-              const resolvedColor = isHealthy ? "#52b788" : eColor;
-              const edgeId = `e-${edge.from}-${edge.to}`;
-
-              // Arrow marker by severity
-              let marker = "url(#arr)";
-              if (isHealthy) {
-                marker = "url(#arr-g)";
-              } else if (isEdgeActive) {
-                const ti = impact(edge.to);
-                marker = ti?.sev === "critical"   ? "url(#arr-c)"
-                       : ti?.sev === "warning"    ? "url(#arr-w)"
-                       : "url(#arr-g)";
-              }
-
-              // Control point for bezier curve
-              const mx  = (a.cx + b.cx) / 2;
-              const my  = (a.cy + b.cy) / 2;
-              // Push control point slightly perpendicular
-              const dy  = b.cy - a.cy;
-              const cpy = my - Math.abs(dy) * 0.12 - 6;
-
-              // Monitor edges always dashed; healthy + active edges solid
-              const dash = (edge.sty === "monitor" || !isEdgeActive) ? "4 3" : "none";
-              const strokeCol = isEdgeActive
-                ? resolvedColor!
-                : edge.sty === "monitor"
-                  ? "rgba(155,143,245,0.28)"
-                  : "rgba(124,110,245,0.2)";
-
+              const a  = nc(fn);
+              const b  = nc(tn);
+              const isActive = activeNodes.has(edge.from) && activeNodes.has(edge.to);
+              const mx = (a.cx + b.cx) / 2;
+              const my = (a.cy + b.cy) / 2;
+              // Slight curve for aesthetics
+              const dx = b.cx - a.cx;
+              const dy = b.cy - a.cy;
+              const cpx = mx;
+              const cpy = my - Math.abs(dy) * 0.12;
               return (
-                <g key={edgeId}>
+                <g key={`${edge.from}-${edge.to}`}>
                   <path
-                    id={edgeId}
-                    d={`M ${a.cx} ${a.cy} Q ${mx} ${cpy} ${b.cx} ${b.cy}`}
-                    stroke={strokeCol}
-                    strokeWidth={isEdgeActive ? 2 : 1.5}
+                    id={`edge-${edge.from}-${edge.to}`}
+                    d={`M ${a.cx} ${a.cy} Q ${cpx} ${cpy} ${b.cx} ${b.cy}`}
+                    stroke={isActive ? blastColor : "rgba(124,110,245,0.22)"}
+                    strokeWidth={isActive ? 2 : 1.5}
                     fill="none"
-                    markerEnd={marker}
-                    strokeDasharray={dash}
-                    style={{ filter:isEdgeActive ? "url(#glow)" : "none", transition:"all 0.3s ease" }}
+                    markerEnd={isActive ? "url(#arr-a)" : "url(#arr)"}
+                    strokeDasharray={isActive ? "none" : "4 3"}
+                    style={{ filter: isActive ? "url(#glow)" : "none", transition: "all 0.35s ease" }}
                   />
-                  {/* Edge label */}
-                  <text x={mx} y={cpy - 5} textAnchor="middle" fontSize="6.5"
-                    fill={isEdgeActive ? `${resolvedColor}bb` : "rgba(124,110,245,0.38)"}
+                  <text x={mx} y={my - 7} textAnchor="middle" fontSize="7.5"
+                    fill={isActive ? `${blastColor}cc` : "rgba(124,110,245,0.42)"}
                     fontFamily="system-ui,sans-serif">
-                    {edge.lbl}
+                    {edge.label}
                   </text>
-                  {/* Pulse dot when active */}
-                  {isEdgeActive && <PulseDot edgeId={edgeId} color={resolvedColor!} />}
+                  {isActive && <PulseDot from={fn} to={tn} color={blastColor} />}
                 </g>
               );
             })}
 
             {/* ── Nodes ── */}
             {NODES.map(node => {
-              const imp      = impact(node.id);
-              const active_  = isActive(node.id);
-              const dim      = isDimmed(node.id);
-              // Partner API is always "healthy green" in idle state
-              const idleGreen = !active && node.id === "partner";
-              const nCol     = idleGreen ? "#52b788" : (nodColor(node.id) ?? node.col);
+              const isActive  = activeNodes.has(node.id);
+              const isHovered = hovered === node.id;
+              const col       = isActive ? blastColor : node.color;
               const { cx, cy } = nc(node);
 
               return (
-                <g key={node.id}
-                  style={{ cursor:"pointer" }}
+                <g key={node.id} style={{ cursor: "pointer" }}
                   onClick={() => handleNodeClick(node)}
                   onMouseEnter={() => setHovered(node.id)}
                   onMouseLeave={() => setHovered(null)}>
 
-                  {/* Pulse ring */}
-                  {active_ && (
-                    <circle cx={cx} cy={cy} r={36} fill="none"
-                      stroke={nCol} strokeWidth="1.5" opacity="0.2"
-                      style={{ filter:"url(#glow)" }}>
-                      <animate attributeName="r"       values="30;44;30" dur="1.9s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.22;0.05;0.22" dur="1.9s" repeatCount="indefinite" />
+                  {/* pulse ring */}
+                  {isActive && (
+                    <circle cx={cx} cy={cy} r={38} fill="none"
+                      stroke={blastColor} strokeWidth="1.5" opacity="0.25"
+                      style={{ filter: "url(#glow)" }}>
+                      <animate attributeName="r"       values="32;42;32" dur="1.8s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.3;0.08;0.3" dur="1.8s" repeatCount="indefinite" />
                     </circle>
                   )}
 
-                  {/* Card */}
-                  <rect
-                    x={node.x} y={node.y} width={node.w} height={node.h} rx={10}
-                    fill={(active_ || idleGreen) ? `${nCol}12` : hovered === node.id ? `${node.col}0a` : "var(--card,#1e1a2e)"}
-                    stroke={(active_ || idleGreen) ? nCol : dim ? `${node.col}20` : hovered === node.id ? `${node.col}60` : `${node.col}42`}
-                    strokeWidth={(active_ || idleGreen) ? 2 : 1.5}
-                    opacity={dim ? 0.38 : 1}
-                    style={{ transition:"all 0.3s ease", filter:(active_ || idleGreen) ? "url(#glow-soft)" : "none" }}
+                  {/* card */}
+                  <rect x={node.x} y={node.y} width={110} height={60} rx={10}
+                    fill={isActive ? `${blastColor}14` : isHovered ? `${node.color}10` : "var(--card,#1e1a2e)"}
+                    stroke={isActive ? blastColor : isHovered ? node.color : `${node.color}45`}
+                    strokeWidth={isActive ? 2 : 1.5}
+                    style={{ transition: "all 0.3s ease", filter: isActive ? "url(#glow-soft)" : "none" }}
                   />
 
-                  {/* Blinking severity dot (active blast) or steady green dot (idle healthy) */}
-                  {(active_ || idleGreen) && (
-                    <circle cx={node.x + node.w - 9} cy={node.y + 9} r={5} fill={nCol}>
-                      {active_ && <animate attributeName="opacity" values="1;0.15;1" dur="0.85s" repeatCount="indefinite" />}
+                  {/* severity dot */}
+                  {isActive && (
+                    <circle cx={node.x + 102} cy={node.y + 8} r={5} fill={blastColor}>
+                      <animate attributeName="opacity" values="1;0.2;1" dur="0.75s" repeatCount="indefinite" />
                     </circle>
                   )}
 
-                  {/* Severity badge / healthy check */}
-                  {(active_ && imp) && (
-                    <text x={node.x + node.w - 9} y={node.y + 12} textAnchor="middle"
-                      fontSize="5" fontWeight="800" fill="white" fontFamily="system-ui,sans-serif">
-                      {imp.sev === "critical" ? "!" : imp.sev === "warning" ? "W" : "✓"}
-                    </text>
-                  )}
-                  {idleGreen && (
-                    <text x={node.x + node.w - 9} y={node.y + 12} textAnchor="middle"
-                      fontSize="6" fontWeight="800" fill="white" fontFamily="system-ui,sans-serif">
-                      ✓
-                    </text>
-                  )}
-
-                  {/* Icon */}
-                  <text x={node.x + 8} y={node.y + 22} fontSize="13"
-                    opacity={dim ? 0.35 : 1}
-                    style={{ userSelect:"none" }}>
+                  {/* icon */}
+                  <text x={node.x + 8} y={node.y + 22} fontSize="13" style={{ userSelect: "none" }}>
                     {node.icon}
                   </text>
 
-                  {/* Label */}
-                  <text x={node.x + 27} y={node.y + 21} fontSize="8.5" fontWeight="700"
-                    fill={active_ ? nCol : dim ? "rgba(150,140,200,0.35)" : "var(--foreground,#f0ece8)"}
+                  {/* label */}
+                  <text x={node.x + 26} y={node.y + 21} fontSize="8.5" fontWeight="700"
+                    fill={isActive ? blastColor : "var(--foreground,#f0ece8)"}
                     fontFamily="system-ui,sans-serif"
-                    style={{ transition:"fill 0.3s ease" }}>
+                    style={{ transition: "fill 0.3s ease" }}>
                     {node.label}
                   </text>
 
-                  {/* Sub-label */}
-                  <text x={node.x + 8} y={node.y + 34} fontSize="7"
-                    fill={active_ ? `${nCol}99` : dim ? "rgba(150,140,200,0.22)" : "rgba(150,140,200,0.6)"}
+                  {/* sublabel */}
+                  <text x={node.x + 8} y={node.y + 36} fontSize="7"
+                    fill={isActive ? `${blastColor}bb` : "rgba(150,140,200,0.65)"}
                     fontFamily="system-ui,sans-serif">
-                    {node.sub}
+                    {node.sublabel}
                   </text>
 
-                  {/* Status bar */}
-                  <rect
-                    x={node.x + 8} y={node.y + node.h - 9}
-                    width={(active_ || idleGreen) ? node.w - 16 : (node.w - 16) * 0.45} height={3.5} rx={2}
-                    fill={(active_ || idleGreen) ? nCol : dim ? `${node.col}18` : `${node.col}48`}
-                    opacity={dim ? 0.3 : 1}
-                    style={{ transition:"all 0.45s ease" }}
+                  {/* status bar */}
+                  <rect x={node.x + 8} y={node.y + 49}
+                    width={isActive ? 94 : 47} height={4} rx={2}
+                    fill={isActive ? blastColor : `${node.color}55`}
+                    style={{ transition: "all 0.5s ease" }}
                   />
                 </g>
               );
             })}
 
+            {/* ── Flow label annotations ── */}
+            <text x="118" y="175" fontSize="7" fill="rgba(124,110,245,0.35)" fontFamily="system-ui,sans-serif">Deploy trigger</text>
+            <text x="118" y="245" fontSize="7" fill="rgba(77,168,218,0.35)" fontFamily="system-ui,sans-serif">Jira gate</text>
+
             {/* ── Legend ── */}
-            <g transform="translate(10, 370)">
-              {[
-                { col:"rgba(124,110,245,0.5)", lbl:"idle" },
-                { col:"#e05c5c",               lbl:"critical" },
-                { col:"#f0a500",               lbl:"warning" },
-                { col:"#52b788",               lbl:"recovering" },
-              ].map(({ col, lbl }, i) => (
-                <g key={lbl} transform={`translate(${i * 110}, 0)`}>
-                  <circle cx={0} cy={6} r={4} fill={col} />
-                  <text x={8} y={10} fontSize="7.5" fill="rgba(124,110,245,0.5)"
-                    fontFamily="system-ui,sans-serif">{lbl}</text>
-                </g>
-              ))}
-              <text x={460} y={10} fontSize="7.5" fill="rgba(124,110,245,0.38)"
-                fontFamily="system-ui,sans-serif">
-                ← each node shows its own severity · click to trace cascade
-              </text>
+            <g transform="translate(0,350)">
+              <circle cx={16} cy={10} r={4} fill="rgba(124,110,245,0.45)" />
+              <text x={25} y={14} fontSize="8" fill="rgba(124,110,245,0.55)" fontFamily="system-ui,sans-serif">normal flow</text>
+              <circle cx={100} cy={10} r={4} fill={blastColor || "#e05c5c"} />
+              <text x={109} y={14} fontSize="8" fill="rgba(124,110,245,0.55)" fontFamily="system-ui,sans-serif">blast radius</text>
+              <text x={230} y={14} fontSize="8" fill="rgba(124,110,245,0.38)" fontFamily="system-ui,sans-serif">click any node to trace →</text>
             </g>
           </svg>
         </div>
 
-        {/* ── Blast Radius Result ── */}
+        {/* ── Blast Radius Result Card ── */}
         <AnimatePresence>
-          {active && (
+          {blastResult && (
             <motion.div
-              initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:-8 }}
-              transition={{ duration:0.22 }}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22 }}
               className="rounded-xl p-4"
-              style={{ background:`${TC[active.sev]}0d`, border:`1px solid ${TC[active.sev]}30` }}>
-
-              {/* Header */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 shrink-0" style={{ color:TC[active.sev] }} />
-                  <span className="text-xs font-bold" style={{ color:TC[active.sev] }}>
-                    AI Blast Radius · {affectedCount} of {active.impacts.length} systems impacted
-                  </span>
+              style={{ background: `${blastColor}10`, border: `1px solid ${blastColor}35` }}>
+              <div className="flex items-start gap-3">
+                <div className="h-8 w-8 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: `${blastColor}20` }}>
+                  <AlertTriangle className="h-4 w-4" style={{ color: blastColor }} />
                 </div>
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-                  style={{ background:`${TC[active.sev]}20`, color:TC[active.sev] }}>
-                  {active.conf}% confidence
-                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs font-bold" style={{ color: blastColor }}>
+                      AI Blast Radius · {blastResult.affectedCount} services affected
+                    </p>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                      style={{ background: `${blastColor}20`, color: blastColor }}>
+                      {blastResult.confidence}% confidence
+                    </span>
+                  </div>
+
+                  {/* Affected chips */}
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {blastResult.affectedNodes.map(nid => {
+                      const node = NODES.find(n => n.id === nid);
+                      if (!node) return null;
+                      return (
+                        <span key={nid} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-md"
+                          style={{ background: `${blastColor}14`, color: blastColor, border: `1px solid ${blastColor}30` }}>
+                          {node.icon} {node.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+
+                  <p className="text-xs leading-5 mb-2" style={{ color: "var(--foreground)" }}>
+                    {blastResult.prediction}
+                  </p>
+                  {blastResult.detail && (
+                    <p className="text-[10px] font-mono px-2 py-1 rounded-lg"
+                      style={{ color: blastColor, background: `${blastColor}10`, opacity: 0.9 }}>
+                      {blastResult.detail}
+                    </p>
+                  )}
+                </div>
               </div>
-
-              {/* Prediction */}
-              <p className="text-xs leading-5 mb-3" style={{ color:"var(--foreground)" }}>
-                {active.pred}
-              </p>
-
-              {/* Per-system impact grid */}
-              <div className="grid grid-cols-2 gap-1.5 mb-3">
-                {active.impacts
-                  .filter(i => i.sev !== "unaffected")
-                  .map(imp => {
-                    const node = NODES.find(n => n.id === imp.nid);
-                    const col  = SC[imp.sev] ?? "#9b8ff5";
-                    return (
-                      <div key={imp.nid}
-                        className="flex items-start gap-2 px-2.5 py-1.5 rounded-lg"
-                        style={{ background:`${col}0d`, border:`1px solid ${col}28` }}>
-                        <span className="text-[11px] mt-0.5 shrink-0">{node?.icon}</span>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="text-[9px] font-black tracking-wide px-1 rounded"
-                              style={{ background:`${col}22`, color:col }}>
-                              {SL[imp.sev]}
-                            </span>
-                            <span className="text-[10px] font-semibold truncate"
-                              style={{ color:"var(--foreground)" }}>
-                              {node?.label}
-                            </span>
-                          </div>
-                          <p className="text-[9px] leading-[1.35]"
-                            style={{ color:"var(--muted-foreground)" }}>
-                            {imp.note}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-
-              {/* Technical detail */}
-              <p className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg"
-                style={{ color:TC[active.sev], background:`${TC[active.sev]}0d` }}>
-                {active.detail}
-              </p>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* ── Empty state ── */}
-        {!active && !analyzing && (
+        {!blastResult && !analyzing && (
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
-            style={{ background:"rgba(124,110,245,0.05)", border:"1px dashed rgba(124,110,245,0.15)" }}>
-            <Activity className="h-4 w-4 shrink-0" style={{ color:"#9b8ff5" }} />
-            <p className="text-xs" style={{ color:"var(--muted-foreground)" }}>
-              <strong style={{ color:"#9b8ff5" }}>Click any node</strong> to trace its blast radius.
-              Each scenario shows per-system severity across the real Mulberry topology —
-              nodes that are unaffected stay dimmed while impacted ones light up with their own severity level.
+            style={{ background: "rgba(124,110,245,0.05)", border: "1px dashed rgba(124,110,245,0.15)" }}>
+            <Activity className="h-4 w-4 shrink-0" style={{ color: "#9b8ff5" }} />
+            <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
+              <strong style={{ color: "#9b8ff5" }}>Click any node</strong> to run AI blast radius analysis — the graph traces how a deployment-triggered schema mismatch cascades from Order API through MuleSoft transforms to OMS, Salesforce CRM, and Zoho Desk ticket spikes.
             </p>
           </div>
         )}
 
-        {/* ── Simulate buttons ── */}
+        {/* ── Simulate row ── */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-semibold uppercase tracking-wide shrink-0"
-            style={{ color:"var(--muted-foreground)" }}>
+            style={{ color: "var(--muted-foreground)" }}>
             Simulate:
           </span>
-          {SCENARIOS.map(s => {
-            const col      = TC[s.sev];
-            const isSelected = active?.id === s.id;
+          {([
+            { src: "AzureDeploy",   sev: "critical", label: "Schema Deploy"    },
+            { src: "MuleSoftFlow",  sev: "critical", label: "Transform Fail"   },
+            { src: "OrderAPI",      sev: "critical", label: "Order API 500"    },
+            { src: "OMSService",    sev: "critical", label: "OMS Blocked"      },
+            { src: "SalesforceCRM", sev: "warning",  label: "CRM Degraded"     },
+            { src: "ZohoDesk",      sev: "critical", label: "Ticket Spike"     },
+            { src: "AzureDeploy",   sev: "success",  label: "Recovery Deploy"  },
+          ] as const).map(({ src, sev, label }, i) => {
+            const col = sev === "critical" ? "#e05c5c" : sev === "warning" ? "#f0a500" : "#52b788";
+            const affected = BLAST_MAP[src] ?? [];
             return (
-              <button key={s.id}
-                onClick={() => trigger(s)}
+              <button key={i}
+                onClick={() => { setActiveNodes(new Set(affected)); setBlastResult(mockBlast(src, affected, sev)); }}
                 className="inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg transition hover:opacity-80"
-                style={{
-                  background: isSelected ? `${col}25` : `${col}12`,
-                  border: `1px solid ${isSelected ? col : `${col}38`}`,
-                  color: col,
-                }}>
-                <ChevronRight className="h-2.5 w-2.5" />
-                {s.btn}
+                style={{ background: `${col}12`, border: `1px solid ${col}35`, color: col }}>
+                <ChevronRight className="h-2.5 w-2.5" />{label}
               </button>
             );
           })}
         </div>
-
       </div>
     </div>
   );
