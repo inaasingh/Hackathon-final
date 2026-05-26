@@ -1,10 +1,18 @@
 /**
- * DashboardIntro — Access confirmation + animated entry screen.
- * Shows the logged-in user's name, role, and which project(s) they can access.
+ * DashboardIntro — Animated entry screen
+ * Shows on first load: time-based greeting → system status items → enter dashboard
  */
 import { useEffect, useState } from "react";
-import { ArrowRight, Lock, ShieldCheck, Layers } from "lucide-react";
-import { auth } from "@/lib/auth";
+import { ArrowRight, LayoutDashboard, Ticket, FileBarChart2, Bell, Presentation, ShieldCheck } from "lucide-react";
+
+const ITEMS = [
+  { icon: LayoutDashboard, color: "#C6C1F7", label: "One place for all your support operations",         delay: 600  },
+  { icon: Ticket,          color: "#52b788", label: "AI reads and prioritises every ticket automatically", delay: 1000 },
+  { icon: Bell,            color: "#e05c5c", label: "Get alerted before issues become problems",           delay: 1400 },
+  { icon: ShieldCheck,     color: "#ACEDF3", label: "Root cause analysis traced by AI in seconds",         delay: 1800 },
+  { icon: FileBarChart2,   color: "#f0a500", label: "Governance reports written for you automatically",    delay: 2200 },
+  { icon: Presentation,    color: "#FE92C9", label: "Download a boardroom-ready PowerPoint instantly",     delay: 2600 },
+];
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -14,164 +22,171 @@ function getGreeting() {
 }
 
 export function DashboardIntro({ onEnter }: { onEnter: () => void }) {
-  const [visible,  setVisible]  = useState(false);
-  const [btnReady, setBtnReady] = useState(false);
-  const [exiting,  setExiting]  = useState(false);
-
-  const user    = auth.getUser();
-  const isAdmin = !user || user.projects.length === 0;
+  const [greetingVisible,  setGreetingVisible]  = useState(false);
+  const [subtitleVisible,  setSubtitleVisible]  = useState(false);
+  const [visibleItems,     setVisibleItems]     = useState<number[]>([]);
+  const [btnVisible,       setBtnVisible]       = useState(false);
+  const [exiting,          setExiting]          = useState(false);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setVisible(true),   150);
-    const t2 = setTimeout(() => setBtnReady(true), 1000);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    timers.push(setTimeout(() => setGreetingVisible(true),  200));
+    timers.push(setTimeout(() => setSubtitleVisible(true),  550));
+
+    ITEMS.forEach((item, i) => {
+      timers.push(setTimeout(() => {
+        setVisibleItems(prev => [...prev, i]);
+      }, item.delay));
+    });
+
+    timers.push(setTimeout(() => setBtnVisible(true), 3100));
+
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   function handleEnter() {
     setExiting(true);
-    setTimeout(onEnter, 400);
+    setTimeout(onEnter, 500);
   }
-
-  // Avatar colours — cycle through a set based on first initial
-  const avatarBg = isAdmin
-    ? "linear-gradient(135deg,#52b788,#38a169)"
-    : "linear-gradient(135deg,#7c6ef5,#a78ef8)";
-
-  const displayName = user?.displayName ?? "Guest";
-  const initials    = user?.initials    ?? "??";
-  const role        = user?.role        ?? "Viewer";
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{
-        background: "linear-gradient(135deg,#0d0b14 0%,#191723 50%,#1e1a2e 100%)",
+        background: "linear-gradient(135deg, #0d0b14 0%, #191723 50%, #1e1a2e 100%)",
         opacity: exiting ? 0 : 1,
-        transition: "opacity 0.4s ease",
+        transition: "opacity 0.5s ease",
         pointerEvents: exiting ? "none" : "auto",
       }}
     >
-      {/* Background blobs */}
-      <div style={{ position:"absolute", top:"10%",  left:"15%",  width:400, height:400, borderRadius:"50%", background:"rgba(124,110,245,0.06)", filter:"blur(80px)", pointerEvents:"none" }} />
-      <div style={{ position:"absolute", bottom:"10%", right:"15%", width:300, height:300, borderRadius:"50%", background:"rgba(198,193,247,0.05)", filter:"blur(60px)", pointerEvents:"none" }} />
+      {/* Background decorative blobs */}
+      <div style={{ position: "absolute", top: "10%",  left: "15%",  width: 400, height: 400, borderRadius: "50%", background: "rgba(124,110,245,0.06)", filter: "blur(80px)", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", bottom: "10%", right: "15%", width: 300, height: 300, borderRadius: "50%", background: "rgba(198,193,247,0.05)", filter: "blur(60px)", pointerEvents: "none" }} />
+      <div style={{ position: "absolute", top: "40%",  right: "25%",  width: 200, height: 200, borderRadius: "50%", background: "rgba(82,183,136,0.04)", filter: "blur(50px)", pointerEvents: "none" }} />
 
-      <div
-        className="relative z-10 w-full max-w-md px-8"
-        style={{
-          opacity: visible ? 1 : 0,
-          transform: visible ? "translateY(0)" : "translateY(20px)",
-          transition: "opacity 0.6s ease, transform 0.6s ease",
-        }}
-      >
-        {/* ── Header label ── */}
-        <p className="text-xs font-semibold tracking-widest uppercase mb-6" style={{ color:"#9b8ff5" }}>
-          Synapse · AI Delivery Copilot
-        </p>
+      <div className="relative z-10 w-full max-w-lg px-8">
 
-        {/* ── User avatar + greeting ── */}
-        <div className="flex items-center gap-4 mb-6">
-          <div
-            className="h-16 w-16 rounded-2xl flex items-center justify-center text-xl font-bold text-white shrink-0"
-            style={{ background: avatarBg, boxShadow:"0 8px 24px rgba(124,110,245,0.35)" }}
-          >
-            {initials}
-          </div>
-          <div>
-            <p className="text-sm font-medium mb-0.5" style={{ color:"rgba(243,242,255,0.5)" }}>
-              {getGreeting()} 👋
-            </p>
-            <h1 className="text-2xl font-bold leading-tight" style={{ color:"#F3F2FF" }}>
-              {displayName}
-            </h1>
-            <p className="text-xs mt-0.5" style={{ color:"rgba(243,242,255,0.4)" }}>{role}</p>
-          </div>
-        </div>
-
-        {/* ── Divider ── */}
-        <div style={{ height:1, background:"linear-gradient(90deg,rgba(198,193,247,0.25) 0%,transparent 100%)", marginBottom:"1.5rem" }} />
-
-        {/* ── ACCESS PANEL — the key visual ── */}
+        {/* Greeting */}
         <div
-          className="rounded-2xl p-5 mb-6"
           style={{
-            background: isAdmin
-              ? "rgba(82,183,136,0.07)"
-              : "rgba(124,110,245,0.08)",
-            border: isAdmin
-              ? "1px solid rgba(82,183,136,0.25)"
-              : "1px solid rgba(124,110,245,0.25)",
+            opacity: greetingVisible ? 1 : 0,
+            transform: greetingVisible ? "translateY(0)" : "translateY(16px)",
+            transition: "opacity 0.6s ease, transform 0.6s ease",
           }}
         >
-          <div className="flex items-center gap-2 mb-3">
-            {isAdmin
-              ? <Layers    className="h-4 w-4" style={{ color:"#52b788" }} />
-              : <Lock      className="h-4 w-4" style={{ color:"#9b8ff5" }} />
-            }
-            <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: isAdmin ? "#52b788" : "#9b8ff5" }}>
-              {isAdmin ? "Admin Access — All Projects" : "Project Access"}
-            </p>
-          </div>
-
-          {isAdmin ? (
-            <p className="text-sm" style={{ color:"rgba(243,242,255,0.65)" }}>
-              You have <strong style={{ color:"#52b788" }}>unrestricted access</strong> to all client projects and integrations.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-xs mb-3" style={{ color:"rgba(243,242,255,0.45)" }}>
-                Your account has been scoped to the following project:
-              </p>
-              {user!.projects.map(proj => (
-                <div
-                  key={proj}
-                  className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl"
-                  style={{ background:"rgba(124,110,245,0.12)", border:"1px solid rgba(124,110,245,0.2)" }}
-                >
-                  <ShieldCheck className="h-3.5 w-3.5 shrink-0" style={{ color:"#9b8ff5" }} />
-                  <span className="text-sm font-semibold" style={{ color:"#F3F2FF" }}>{proj}</span>
-                  <span
-                    className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full"
-                    style={{ background:"rgba(124,110,245,0.2)", color:"#C6C1F7" }}
-                  >
-                    ACTIVE
-                  </span>
-                </div>
-              ))}
-              <p className="text-[10px] mt-2" style={{ color:"rgba(243,242,255,0.3)" }}>
-                Contact your AbsoluteLabs administrator to request access to additional projects.
-              </p>
-            </div>
-          )}
+          <p className="text-xs font-semibold tracking-widest uppercase mb-2" style={{ color: "#9b8ff5" }}>
+            Synapse · AI Delivery Copilot
+          </p>
+          <h1 className="text-4xl font-bold leading-tight" style={{ color: "#F3F2FF" }}>
+            {getGreeting()},<br />
+            <span style={{ color: "#C6C1F7" }}>welcome back.</span>
+          </h1>
         </div>
 
-        {/* ── Enter button ── */}
+        {/* Subtitle */}
+        <div
+          className="mt-3 mb-8"
+          style={{
+            opacity: subtitleVisible ? 1 : 0,
+            transform: subtitleVisible ? "translateY(0)" : "translateY(10px)",
+            transition: "opacity 0.5s ease, transform 0.5s ease",
+          }}
+        >
+          <p className="text-sm" style={{ color: "rgba(243,242,255,0.45)" }}>
+            Your AI-powered command centre for retail support operations.
+          </p>
+        </div>
+
+        {/* Divider */}
         <div
           style={{
-            opacity: btnReady ? 1 : 0,
-            transform: btnReady ? "translateY(0)" : "translateY(6px)",
-            transition: "opacity 0.4s ease, transform 0.4s ease",
+            height: 1,
+            background: "linear-gradient(90deg, rgba(198,193,247,0.3) 0%, transparent 100%)",
+            marginBottom: "1.5rem",
+            opacity: subtitleVisible ? 1 : 0,
+            transition: "opacity 0.5s ease 0.2s",
+          }}
+        />
+
+        {/* Feature items */}
+        <div className="space-y-3 mb-8">
+          {ITEMS.map((item, i) => {
+            const visible = visibleItems.includes(i);
+            const Icon = item.icon;
+            return (
+              <div
+                key={i}
+                style={{
+                  opacity: visible ? 1 : 0,
+                  transform: visible ? "translateX(0)" : "translateX(-12px)",
+                  transition: "opacity 0.4s ease, transform 0.4s ease",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "12px",
+                }}
+              >
+                <div
+                  style={{
+                    width: 32, height: 32, borderRadius: 10, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    background: `${item.color}18`,
+                    border: `1px solid ${item.color}30`,
+                  }}
+                >
+                  <Icon style={{ width: 14, height: 14, color: item.color }} />
+                </div>
+                <span className="text-sm" style={{ color: "rgba(243,242,255,0.75)" }}>
+                  {item.label}
+                </span>
+                {visible && (
+                  <span
+                    style={{
+                      marginLeft: "auto", fontSize: 10, fontWeight: 600,
+                      color: item.color, opacity: 0.8,
+                      animation: "fadeIn 0.3s ease",
+                    }}
+                  >
+                    ✓
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Enter button */}
+        <div
+          style={{
+            opacity: btnVisible ? 1 : 0,
+            transform: btnVisible ? "translateY(0)" : "translateY(8px)",
+            transition: "opacity 0.5s ease, transform 0.5s ease",
           }}
         >
           <button
             onClick={handleEnter}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white transition-all hover:opacity-90 active:scale-[0.99]"
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-semibold text-white transition-all hover:opacity-90 hover:scale-[1.01] active:scale-[0.99]"
             style={{
-              background: isAdmin
-                ? "linear-gradient(135deg,#52b788,#38a169)"
-                : "linear-gradient(135deg,#7c6ef5,#a78ef8)",
-              boxShadow: isAdmin
-                ? "0 4px 24px rgba(82,183,136,0.3)"
-                : "0 4px 24px rgba(124,110,245,0.35)",
+              background: "linear-gradient(135deg, #7c6ef5 0%, #a78ef8 100%)",
+              boxShadow: "0 4px 24px rgba(124,110,245,0.35)",
             }}
           >
             Open Dashboard
-            <ArrowRight style={{ width:15, height:15 }} />
+            <ArrowRight style={{ width: 15, height: 15 }} />
           </button>
-          <p className="text-center text-[10px] mt-3" style={{ color:"rgba(243,242,255,0.2)" }}>
-            AbsoluteLabs · {new Date().toLocaleDateString("en-GB",{ weekday:"long", day:"numeric", month:"long" })}
+          <p className="text-center text-[10px] mt-3" style={{ color: "rgba(243,242,255,0.25)" }}>
+            Absolute Retail Consulting · {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
           </p>
         </div>
+
       </div>
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 0.8; }
+        }
+      `}</style>
     </div>
   );
 }

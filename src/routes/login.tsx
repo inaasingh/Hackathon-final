@@ -5,7 +5,6 @@ import React, {
 import { motion } from "framer-motion";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { auth } from "../lib/auth";
-import { authenticateUser } from "@/data/users";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -241,64 +240,16 @@ const glassInput: React.CSSProperties = {
 ════════════════════════════════════════════════════════════════════ */
 export default function LoginPage() {
   const navigate    = useNavigate();
-  const [loading,   setLoading]   = useState(false);
-  const [mode,      setMode]      = useState<"signin" | "signup">("signin");
-  const [loginError, setLoginError] = useState<string>("");
-  const [showHints,  setShowHints]  = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [mode,    setMode]    = useState<"signin" | "signup">("signin");
 
   const emailRef    = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const nameRef     = useRef<HTMLInputElement>(null);
 
   function doLogin() {
-    const email    = emailRef.current?.value?.trim() ?? "";
-    const password = passwordRef.current?.value ?? "";
-
-    if (!email) {
-      setLoginError("Please enter your email address.");
-      return;
-    }
-
     setLoading(true);
-    setLoginError("");
-
-    setTimeout(() => {
-      const user = authenticateUser(email, password);
-
-      if (user) {
-        // ✅ Known user — store their profile (including project restrictions)
-        auth.loginAs({
-          email:       user.email,
-          displayName: user.displayName,
-          initials:    user.initials,
-          role:        user.role,
-          projects:    user.projects,
-        });
-        navigate({ to: "/" });
-      } else {
-        // ❌ Unknown credentials
-        setLoading(false);
-        setLoginError(
-          "Invalid email or password. Use a registered account or see the demo credentials below.",
-        );
-        setShowHints(true);
-      }
-    }, 600);
-  }
-
-  /** Social / SSO buttons re-use the same flow (demo: just login as admin) */
-  function doSocialLogin() {
-    setLoading(true);
-    setTimeout(() => {
-      auth.loginAs({
-        email:       "admin@absolutelabs.co",
-        displayName: "AL Admin",
-        initials:    "AA",
-        role:        "Platform Administrator",
-        projects:    [],
-      });
-      navigate({ to: "/" });
-    }, 600);
+    setTimeout(() => { auth.login(); navigate({ to: "/" }); }, 600);
   }
 
   /* Focus ring for glass inputs */
@@ -700,44 +651,7 @@ export default function LoginPage() {
                   </>
                 )}
               </button>
-
-              {/* Error message */}
-              {loginError && (
-                <p style={{
-                  fontSize: 12,
-                  color: "#ff6b6b",
-                  textAlign: "center",
-                  marginTop: 4,
-                  fontFamily: "'Barlow', sans-serif",
-                  lineHeight: 1.5,
-                }}>
-                  {loginError}
-                </p>
-              )}
             </div>
-
-            {/* Demo credentials hint */}
-            {showHints && (
-              <div
-                className="liquid-glass"
-                style={{
-                  marginTop: 16,
-                  borderRadius: 14,
-                  padding: "14px 18px",
-                  fontSize: 11,
-                  color: "rgba(255,255,255,0.65)",
-                  fontFamily: "'Barlow', sans-serif",
-                  lineHeight: 1.8,
-                }}
-              >
-                <p style={{ fontWeight: 600, color: "rgba(255,255,255,0.85)", marginBottom: 6 }}>
-                  Demo accounts:
-                </p>
-                <p>🟣 <strong style={{ color: "rgba(255,255,255,0.8)" }}>v.sharma@mulberry.com</strong> / mulberry123 → Mulberry</p>
-                <p>🔵 <strong style={{ color: "rgba(255,255,255,0.8)" }}>b.kowalski@wolverineworldwide.com</strong> / wolverine123 → Wolverine</p>
-                <p>🟢 <strong style={{ color: "rgba(255,255,255,0.8)" }}>admin@absolutelabs.co</strong> / admin123 → All projects</p>
-              </div>
-            )}
 
             {/* Divider */}
             <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "24px 0" }}>
@@ -761,7 +675,7 @@ export default function LoginPage() {
                 <button
                   key={label}
                   type="button"
-                  onClick={doSocialLogin}
+                  onClick={doLogin}
                   className="liquid-glass"
                   style={{
                     flex: 1,

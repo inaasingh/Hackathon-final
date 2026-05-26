@@ -27,16 +27,7 @@ const router = createRouter({
  * all of which add overhead and potential conflict on a plain Vite SPA.
  */
 function Root() {
-  const [loggedIn, setLoggedIn] = useState(() => {
-    // Invalidate sessions created before user-profile data was introduced.
-    // If the auth flag is set but no user object is stored, force re-login
-    // so the project-restriction system gets the correct profile.
-    if (auth.isLoggedIn() && !auth.getUser()) {
-      auth.logout();
-      return false;
-    }
-    return auth.isLoggedIn();
-  });
+  const [loggedIn, setLoggedIn] = useState(() => auth.isLoggedIn());
 
   /* Register the sign-out callback so Sidebar can trigger re-render */
   auth.setLogoutHandler(() => setLoggedIn(false));
@@ -44,20 +35,8 @@ function Root() {
   if (!loggedIn) {
     return (
       <PremiumLogin
-        onLogin={(user) => {
-          if (user) {
-            /* Known user — store their profile + project restrictions */
-            auth.loginAs(user);
-          } else {
-            /* Social / SSO fallback — all-project admin access */
-            auth.loginAs({
-              email:       "admin@absolutelabs.co",
-              displayName: "AL Admin",
-              initials:    "AA",
-              role:        "Platform Administrator",
-              projects:    [],
-            });
-          }
+        onLogin={() => {
+          auth.login();
           setLoggedIn(true);
         }}
       />

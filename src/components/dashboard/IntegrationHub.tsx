@@ -14,8 +14,7 @@ import { PROJECT_TICKETS } from "@/data/projectTickets";
 import { useTicketPipeline } from "@/hooks/useTicketPipeline";
 import { generateHealthCheckXLSX } from "@/lib/xlsxHealthReport";
 
-// Use VITE_BACKEND_URL env var in production (Vercel), fall back to localhost for dev
-const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
+const BACKEND = "http://localhost:3001";
 
 export type IntegrationId = "zoho" | "mulesoft" | "anypoint" | "jira" | "datadog";
 
@@ -178,7 +177,7 @@ function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, item
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ZOHO TAB — Real-time pipeline via WebSocket + backend Zoho API
+// ZOHO TAB — Real-time pipeline via WebSocket
 // ══════════════════════════════════════════════════════════════════════════════
 function ZohoTab({ activeProject }: { activeProject?: string }) {
   const { tickets: pipelineTickets, stats, status, lastEvent, processing } = useTicketPipeline();
@@ -186,80 +185,155 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
   const [showReport,     setShowReport]     = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [pptLoading,     setPptLoading]     = useState(false);
-
-  // ── Static project base (always available as fallback) ──────────────────────
-  const [projectBase, setProjectBase] = useState<any[]>(
+  const [fetchSource,    setFetchSource]    = useState<"loading" | "live" | "mock">("loading");
+  const [projectBase,    setProjectBase]    = useState<any[]>(
     PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []
   );
 
-  // ── Zoho backend API tickets (live when credentials are set) ─────────────────
-  const [zohoApiTickets, setZohoApiTickets] = useState<any[]>([]);
-  const [zohoSource,     setZohoSource]     = useState<"zoho" | "mock" | "none">("none");
-  const [fetchingZoho,   setFetchingZoho]   = useState(false);
-
-  // Reset + re-fetch whenever the active project changes
+  // Fetch live tickets from backend (Zoho) or fall back to mock
   useEffect(() => {
-    const proj = activeProject ?? "Mulberry Support Team";
-
-    // Reset local state immediately
-    setProjectBase(PROJECT_TICKETS[proj] ?? []);
-    setZohoApiTickets([]);
-    setZohoSource("none");
-    setExpanded(false);
-    setSelectedTicket(null);
-
-    // Fetch project-specific tickets from the backend
-    setFetchingZoho(true);
-    fetch(`${BACKEND}/api/zoho/tickets?project=${encodeURIComponent(proj)}&limit=50`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.source === "zoho" && Array.isArray(d.tickets) && d.tickets.length > 0) {
-          // Live Zoho data — use it
-          setZohoApiTickets(d.tickets);
-          setZohoSource("zoho");
+    setFetchSource("loading");
+    fetch(`${BACKEND}/api/zoho/tickets`)
+      .then(r => { if (!r.ok) throw new Error("non-ok"); return r.json(); })
+      .then(data => {
+        const raw: any[] = data.tickets ?? [];
+        if (raw.length > 0) {
+          const normalised = raw.map((t: any) => ({
+            id:         t.id ?? t.ticketNumber ?? "",
+            subject:    t.subject ?? "",
+            status:     t.status ?? "Open",
+            priority:   t.priority ?? "Medium",
+            department: typeof t.department === "string"
+                          ? { name: t.department }
+                          : (t.department ?? { name: "General" }),
+            contact: {
+              firstName: t.assignee?.split(" ")[0] ?? "Agent",
+              lastName:  t.assignee?.split(" ")[1] ?? "",
+              email:     "",
+            },
+            aiAnalysis: {
+              urgencyScore: t.priority === "Urgent" ? 90
+                          : t.priority === "High"   ? 72
+                          : t.priority === "Medium" ? 50 : 30,
+            },
+          }));
+          setProjectBase(normalised);
+          setFetchSource(data.source === "zoho" ? "live" : "mock");
         } else {
-          // Mock / no data — rely on PROJECT_TICKETS fallback
-          setZohoApiTickets([]);
-          setZohoSource(d?.source === "mock" ? "mock" : "none");
+          setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
+          setFetchSource("mock");
         }
       })
-      .catch(() => { setZohoApiTickets([]); setZohoSource("none"); })
-      .finally(() => setFetchingZoho(false));
+      .catch(() => {
+        setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
+        setFetchSource("mock");
+      });
   }, [activeProject]);
 
-  // ── Merge: pipeline (real-time) → zoho API (live) → project static (fallback)
+  // Reset expanded/selected when project switches
+  useEffect(() => {
+    setExpanded(false);
+    setSelectedTicket(null);
+  }, [activeProject]);
+
+  // Merge: live pipeline tickets first (deduped), then project base
   const pipelineIds = new Set(pipelineTickets.map((t: any) => t.id));
-  const zohoIds     = new Set(zohoApiTickets.map((t: any) => t.id));
   const tickets = [
     ...pipelineTickets,
-    ...zohoApiTickets.filter((t: any) => !pipelineIds.has(t.id)),
-    // Only include static data if we have no live API tickets for this project
-    ...(zohoSource !== "zoho"
-      ? projectBase.filter((t: any) => !pipelineIds.has(t.id) && !zohoIds.has(t.id))
-      : []
-    ),
+    ...projectBase.filter((t: any) => !pipelineIds.has(t.id)),
   ];
 
   async function downloadPPT() {
     setPptLoading(true);
     try {
-      const res = await fetch(`${BACKEND}/generate-ppt`, { method: "POST" });
-      if (!res.ok) throw new Error("Server error");
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = "Synapse-Governance-Report.pptx";
-      a.click();
-      URL.revokeObjectURL(url);
+      const { jsPDF } = await import("jspdf");
+      const W = 13.33, H = 7.5;
+      const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [W, H] } as any);
+      const proj = activeProject ?? "Mulberry Support Team";
+
+      const hex = (h: string): [number,number,number] => {
+        const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
+        return [r,g,b];
+      };
+      const fill  = (h: string) => { const [r,g,b] = hex(h); doc.setFillColor(r,g,b); };
+      const stroke= (h: string) => { const [r,g,b] = hex(h); doc.setDrawColor(r,g,b); };
+      const text  = (h: string) => { const [r,g,b] = hex(h); doc.setTextColor(r,g,b); };
+      const txt   = (col: string, size: number, bold: boolean, str: string, x: number, y: number, opts?: any) => {
+        text(col); doc.setFontSize(size); doc.setFont("helvetica", bold ? "bold" : "normal");
+        doc.text(str, x, y, opts);
+      };
+
+      // ── Page 1: Title ──────────────────────────────────────────────────
+      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
+      fill("#1a1a2e"); doc.rect(0,0,W,1.2,"F");
+      txt("#9b8ff5",28,true,"Synapse AI Delivery Copilot",0.5,0.75);
+      txt("#888",14,false,"Governance Report  ·  "+proj,0.5,1.05);
+      txt("#fff",20,true,"Executive Summary",0.5,2.0);
+      const stats = liveStats;
+      const boxes = [
+        { label:"Total Tickets", val:String(stats.total),    col:"#9b8ff5" },
+        { label:"Open",          val:String(stats.open),     col:"#e05c5c" },
+        { label:"On Hold",       val:String(stats.onHold),   col:"#f0a500" },
+        { label:"Resolved",      val:String(stats.resolved), col:"#52b788" },
+        { label:"Urgent",        val:String(stats.urgent),   col:"#e05c5c" },
+        { label:"Avg Urgency",   val:stats.avgUrgency+"%",   col:"#9b8ff5" },
+      ];
+      boxes.forEach((b,i) => {
+        const x = 0.5 + i*2.2, y = 2.5;
+        fill("#1a1a2e"); stroke("#333"); doc.setLineWidth(0.01);
+        doc.roundedRect(x,y,2.0,1.2,0.1,0.1,"FD");
+        txt(b.col,28,true,b.val,x+1.0,y+0.65,{align:"center"});
+        txt("#aaa",10,false,b.label,x+1.0,y+0.95,{align:"center"});
+      });
+      txt("#555",9,false,"Generated "+new Date().toLocaleDateString("en-GB"),0.5,H-0.3);
+      txt("#555",9,false,"AbsoluteLabs · Synapse Platform",W-0.5,H-0.3,{align:"right"});
+
+      // ── Page 2: Open tickets ───────────────────────────────────────────
+      doc.addPage();
+      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
+      txt("#9b8ff5",20,true,"Open Tickets",0.5,0.7);
+      const openT = tickets.filter((t:any) => t.status==="Open" || t.status==="On Hold");
+      openT.slice(0,8).forEach((t:any,i:number) => {
+        const y = 1.1 + i*0.73;
+        const pCol = t.priority==="Urgent"?"#e05c5c":t.priority==="High"?"#f0a500":t.priority==="Medium"?"#9b8ff5":"#52b788";
+        fill("#1a1a2e"); doc.rect(0.5,y,W-1,0.62,"F");
+        fill(pCol); doc.rect(0.5,y,0.04,0.62,"F");
+        txt("#fff",10,true,"#"+t.id,0.65,y+0.22);
+        txt("#ccc",9,false,doc.splitTextToSize(t.subject,9.0)[0],1.3,y+0.22);
+        txt(pCol,8,true,t.priority??"",W-1.5,y+0.22,{align:"right"});
+        txt("#666",8,false,t.status??"",W-1.5,y+0.44,{align:"right"});
+      });
+
+      // ── Page 3: Resolved tickets ───────────────────────────────────────
+      doc.addPage();
+      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
+      txt("#52b788",20,true,"Resolved / Closed",0.5,0.7);
+      const resT = tickets.filter((t:any) => ["Resolved","Closed"].includes(t.status));
+      resT.slice(0,8).forEach((t:any,i:number) => {
+        const y = 1.1 + i*0.73;
+        fill("#1a1a2e"); doc.rect(0.5,y,W-1,0.62,"F");
+        fill("#52b788"); doc.rect(0.5,y,0.04,0.62,"F");
+        txt("#fff",10,true,"#"+t.id,0.65,y+0.22);
+        txt("#ccc",9,false,doc.splitTextToSize(t.subject,9.0)[0],1.3,y+0.22);
+        txt("#52b788",8,true,t.status??"",W-1.5,y+0.22,{align:"right"});
+      });
+
+      // ── Page 4: Closing ────────────────────────────────────────────────
+      doc.addPage();
+      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
+      txt("#9b8ff5",26,true,"Powered by Synapse",W/2,H/2-0.5,{align:"center"});
+      txt("#555",12,false,"AbsoluteLabs AI Delivery Copilot",W/2,H/2+0.1,{align:"center"});
+      txt("#333",10,false,proj+" · "+new Date().toLocaleDateString("en-GB"),W/2,H/2+0.5,{align:"center"});
+
+      doc.save(`Synapse-Governance-Report-${proj.replace(/ /g,"-")}.pdf`);
     } catch (e) {
-      alert("Failed to generate PPT. Make sure the server is running.");
+      alert("Failed to generate report: " + (e as Error).message);
     } finally {
       setPptLoading(false);
     }
   }
 
-  const isLive   = status === "connected" || zohoSource === "zoho";
+  const isLive   = fetchSource === "live";
   const visible  = expanded ? tickets : tickets.slice(0, 6);
   // Always compute stats from the full merged list so project tickets are counted
   const liveStats = {
@@ -280,11 +354,7 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
 
       {/* Header */}
       <TabHeader
-        subtitle={
-          fetchingZoho
-            ? `Loading ${activeProject ?? "Mulberry Support Team"} tickets…`
-            : `${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}${zohoSource === "zoho" ? " · Live from Zoho" : ""}`
-        }
+        subtitle={`${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}`}
         url="https://desk.zoho.in" label="Zoho Desk"
         isLive={isLive} onReport={() => setShowReport(true)}
         system="zoho" stats={liveStats} items={tickets}

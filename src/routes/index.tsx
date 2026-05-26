@@ -16,17 +16,14 @@ import { MinecraftPlayground } from "@/components/dashboard/MinecraftPlayground"
 import { DashboardIntro } from "@/components/dashboard/DashboardIntro";
 import type { IntegrationId } from "@/components/dashboard/IntegrationHub";
 import { mockEvents } from "@/data/mockEvents";
-import { auth } from "@/lib/auth";
 import {
   Bell, Search, AlertCircle, CheckCircle2, Clock,
   Sun, Moon, Gamepad2, ChevronDown, FolderOpen,
   PanelRightClose,
   PanelRightOpen,
-  Lock,
 } from "lucide-react";
 
-/** Full master list — used as the "all projects" pool for admins. */
-const ALL_PROJECTS = [
+const PROJECTS = [
   "Barbour Support", "Bedrock", "Clarks Support Team", "FastMarkets",
   "Fenwick Support Team", "FitFlop Support Team", "FootAsylum Support Team",
   "Furniture Village", "Harbour Hotels", "Harvey Nichols", "Jewells Support",
@@ -37,18 +34,6 @@ const ALL_PROJECTS = [
   "WhiteStuff Support Team", "Wolverine-Support Team", "Wren Kitchens",
   "Yotel Support team",
 ];
-
-/**
- * Returns the subset of projects the current user may access.
- * - Admin users (projects = []) → all projects
- * - Client users → only their assigned project(s)
- */
-function getUserProjects(): string[] {
-  const user = auth.getUser();
-  if (!user || user.projects.length === 0) return ALL_PROJECTS;
-  // Filter to ensure we only show projects that exist in the master list
-  return user.projects.filter((p) => ALL_PROJECTS.includes(p));
-}
 
 const DEFAULT_EVENT = mockEvents[0];
 
@@ -76,11 +61,6 @@ export const Route = createFileRoute("/")({
 });
 
 function Dashboard() {
-  // ── Project access control ──────────────────────────────────────────
-  const currentUser   = auth.getUser();
-  const allowedProjects = getUserProjects();
-  const isAdmin       = !currentUser || currentUser.projects.length === 0;
-
   const [selectedEvent,      setSelectedEvent]      = useState<any>(DEFAULT_EVENT);
   const [liveEvents,         setLiveEvents]         = useState<any[]>([]);
   const [dark,               setDark]               = useState(() =>
@@ -90,10 +70,7 @@ function Dashboard() {
   const [activeIntegration,  setActiveIntegration]  = useState<IntegrationId | undefined>(undefined);
   const [showPlayground,     setShowPlayground]     = useState(false);
   const [showIntro,          setShowIntro]          = useState(true);
-  // Default to the first project the user is allowed to access
-  const [activeProject,      setActiveProject]      = useState<string>(
-    allowedProjects[0] ?? "Mulberry Support Team",
-  );
+  const [activeProject,      setActiveProject]      = useState<string>("Mulberry Support Team");
   const [projectOpen,        setProjectOpen]        = useState(false);
 
   useEffect(() => {
@@ -139,62 +116,32 @@ function Dashboard() {
           <h1 className="text-base font-semibold tracking-tight">Dashboard</h1>
           <div className="flex items-center gap-2">
 
-            {/* ── Project access indicator ── */}
+            {/* ── Project switcher dropdown ── */}
             <div className="relative">
+              <button
+                onClick={() => setProjectOpen(p => !p)}
+                className="h-8 flex items-center gap-2 px-3 rounded-xl border transition hover:bg-secondary shadow-sm"
+                style={{
+                  background: dark ? "#1a162a" : "#ede8ff",
+                  borderColor: "rgba(124,110,245,0.25)",
+                  minWidth: 180,
+                }}
+              >
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
+                <span className="text-xs font-medium truncate flex-1 text-left" style={{ color: "var(--foreground)" }}>
+                  {activeProject}
+                </span>
+                <ChevronDown
+                  className="h-3 w-3 shrink-0 transition-transform"
+                  style={{ color: "#9b8ff5", transform: projectOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                />
+              </button>
 
-              {/* RESTRICTED user: non-clickable badge showing their locked project */}
-              {!isAdmin ? (
-                <div
-                  className="h-8 flex items-center gap-2 px-3 rounded-xl border shadow-sm"
-                  style={{
-                    background: dark ? "#1a162a" : "#ede8ff",
-                    borderColor: "rgba(124,110,245,0.35)",
-                    minWidth: 200,
-                    cursor: "default",
-                  }}
-                >
-                  <Lock className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
-                  <div className="flex flex-col flex-1 min-w-0">
-                    <span className="text-[9px] font-bold uppercase tracking-wide leading-none" style={{ color: "#9b8ff5" }}>
-                      Your Project
-                    </span>
-                    <span className="text-xs font-semibold truncate leading-tight mt-0.5" style={{ color: "var(--foreground)" }}>
-                      {activeProject}
-                    </span>
-                  </div>
-                  <span
-                    className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
-                    style={{ background: "rgba(124,110,245,0.15)", color: "#9b8ff5" }}
-                  >
-                    RESTRICTED
-                  </span>
-                </div>
-              ) : (
-                /* ADMIN user: full dropdown */
-                <button
-                  onClick={() => setProjectOpen(p => !p)}
-                  className="h-8 flex items-center gap-2 px-3 rounded-xl border transition hover:bg-secondary shadow-sm"
-                  style={{
-                    background: dark ? "#1a162a" : "#ede8ff",
-                    borderColor: "rgba(124,110,245,0.25)",
-                    minWidth: 180,
-                  }}
-                >
-                  <FolderOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
-                  <span className="text-xs font-medium truncate flex-1 text-left" style={{ color: "var(--foreground)" }}>
-                    {activeProject}
-                  </span>
-                  <ChevronDown
-                    className="h-3 w-3 shrink-0 transition-transform"
-                    style={{ color: "#9b8ff5", transform: projectOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                  />
-                </button>
-              )}
-
-              {/* Admin dropdown */}
-              {projectOpen && isAdmin && (
+              {projectOpen && (
                 <>
+                  {/* Backdrop */}
                   <div className="fixed inset-0 z-30" onClick={() => setProjectOpen(false)} />
+                  {/* Dropdown */}
                   <div
                     className="absolute right-0 top-10 z-40 rounded-2xl shadow-2xl overflow-hidden"
                     style={{
@@ -207,10 +154,10 @@ function Dashboard() {
                   >
                     <div className="px-3 py-2 border-b" style={{ borderColor: "rgba(124,110,245,0.1)" }}>
                       <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#9b8ff5" }}>
-                        All Projects
+                        Select Project
                       </p>
                     </div>
-                    {allowedProjects.map(p => (
+                    {PROJECTS.map(p => (
                       <button
                         key={p}
                         onClick={() => { setActiveProject(p); setProjectOpen(false); }}
@@ -388,31 +335,13 @@ function Dashboard() {
                 className="h-16 w-16 rounded-full flex items-center justify-center text-lg font-bold text-white"
                 style={{ background: "linear-gradient(135deg,#7c6ef5,#a78ef8)" }}
               >
-                {currentUser?.initials ?? "??"}
+                VK
               </div>
               <span className="absolute bottom-0 right-0 h-4 w-4 rounded-full bg-success border-2" style={{ borderColor: "var(--sidebar)" }} />
             </div>
             <div>
-              <p className="font-semibold text-sm">{currentUser?.displayName ?? "Guest"}</p>
-              <p className="text-xs text-muted-foreground">{currentUser?.role ?? "Viewer"}</p>
-              {/* Show the project badge for restricted users */}
-              {!isAdmin && (
-                <span
-                  className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                  style={{ background: "rgba(124,110,245,0.12)", color: "#9b8ff5" }}
-                >
-                  <Lock className="h-2.5 w-2.5" />
-                  {allowedProjects[0]}
-                </span>
-              )}
-              {isAdmin && (
-                <span
-                  className="inline-flex items-center gap-1 mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full"
-                  style={{ background: "rgba(82,183,136,0.12)", color: "#52b788" }}
-                >
-                  All Projects
-                </span>
-              )}
+              <p className="font-semibold text-sm">Virat Kohli</p>
+              <p className="text-xs text-muted-foreground">Platform Manager</p>
             </div>
           </div>
         </div>
