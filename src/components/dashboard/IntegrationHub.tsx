@@ -142,9 +142,9 @@ function StatCards({ cards }: { cards: { label: string; value: number | string; 
 }
 
 // ── Shared: Tab header row ────────────────────────────────────────────────────
-function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, items }: {
+function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, items, hideReport }: {
   subtitle: string; url: string; label: string; isLive: boolean;
-  onReport: () => void; system: string; stats: any; items: any[];
+  onReport: () => void; system: string; stats: any; items: any[]; hideReport?: boolean;
 }) {
   return (
     <div className="flex items-center justify-between flex-wrap gap-2">
@@ -157,15 +157,17 @@ function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, item
             border: `1px solid ${isLive ? "rgba(82,183,136,0.25)" : "rgba(240,165,0,0.25)"}`,
           }}>
           {isLive ? <Wifi className="h-2.5 w-2.5" /> : <WifiOff className="h-2.5 w-2.5" />}
-          {isLive ? "Zoho Live" : "Mock data"}
+          {isLive ? "Live data" : "Mock data"}
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={onReport}
-          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold text-white hover:opacity-90 transition"
-          style={{ background: "linear-gradient(135deg,#7c6ef5,#a78ef8)" }}>
-          <BarChart3 className="h-3 w-3" /> Generate Report
-        </button>
+        {!hideReport && (
+          <button onClick={onReport}
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-semibold text-white hover:opacity-90 transition"
+            style={{ background: "linear-gradient(135deg,#7c6ef5,#a78ef8)" }}>
+            <BarChart3 className="h-3 w-3" /> Generate Report
+          </button>
+        )}
         <a href={url} target="_blank" rel="noreferrer"
           className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl text-xs font-medium text-white transition hover:opacity-90"
           style={{ background: "linear-gradient(135deg,#002060,#1a4a8a)" }}>
@@ -185,13 +187,12 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
   const [showReport,     setShowReport]     = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [pptLoading,     setPptLoading]     = useState(false);
+  const [fetchSource,    setFetchSource]    = useState<"loading" | "live" | "mock">("loading");
   const [projectBase,    setProjectBase]    = useState<any[]>(
     PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []
   );
 
-  // ── Live fetch from backend /api/zoho/tickets ─────────────────────────────
-  const [fetchSource, setFetchSource] = useState<"loading" | "live" | "mock">("loading");
-
+  // Fetch live tickets from backend (Zoho) or fall back to mock
   useEffect(() => {
     setFetchSource("loading");
     fetch(`${BACKEND}/api/zoho/tickets`)
@@ -199,57 +200,40 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
       .then(data => {
         const raw: any[] = data.tickets ?? [];
         if (raw.length > 0) {
-          // Normalise backend shape to match what the UI expects
           const normalised = raw.map((t: any) => ({
-            id:          t.id ?? t.ticketNumber ?? "",
-            subject:     t.subject ?? "",
-            description: t.description ?? t.subject ?? "",
-            status:      t.status ?? "Open",
-            priority:    t.priority ?? "Medium",
-            department:  typeof t.department === "string"
-                           ? { name: t.department }
-                           : (t.department ?? { name: "General" }),
+            id:         t.id ?? t.ticketNumber ?? "",
+            subject:    t.subject ?? "",
+            status:     t.status ?? "Open",
+            priority:   t.priority ?? "Medium",
+            department: typeof t.department === "string"
+                          ? { name: t.department }
+                          : (t.department ?? { name: "General" }),
             contact: {
               firstName: t.assignee?.split(" ")[0] ?? "Agent",
               lastName:  t.assignee?.split(" ")[1] ?? "",
               email:     "",
             },
-            assignee:    t.assignee ?? "Unassigned",
-            channel:     t.channel ?? "Web",
-            createdTime: t.createdTime ?? new Date().toISOString(),
-            dueDate:     t.dueDate ?? null,
             aiAnalysis: {
               urgencyScore: t.priority === "Urgent" ? 90
                           : t.priority === "High"   ? 72
                           : t.priority === "Medium" ? 50 : 30,
-              category:    "Support",
-              subCategory: "Ticket",
-              suggestedPriority: t.priority ?? "Medium",
-              pattern:     "",
-              draftResponse: "",
-              riskFlag:    null,
-              estimatedResolutionHours: 4,
-              processedAt: new Date().toISOString(),
             },
           }));
           setProjectBase(normalised);
           setFetchSource(data.source === "zoho" ? "live" : "mock");
         } else {
-          // Empty response — keep mock
           setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
           setFetchSource("mock");
         }
       })
       .catch(() => {
-        // Server not running — fall back to mock
         setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
         setFetchSource("mock");
       });
   }, [activeProject]);
 
-  // Also reset when project switches (instant feedback before fetch completes)
+  // Reset expanded/selected when project switches
   useEffect(() => {
-    setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
     setExpanded(false);
     setSelectedTicket(null);
   }, [activeProject]);
@@ -261,193 +245,34 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
     ...projectBase.filter((t: any) => !pipelineIds.has(t.id)),
   ];
 
-  async function downloadPPT() {
+  async function downloadGovernancePPT(period: "weekly" | "monthly") {
     setPptLoading(true);
+    const proj = activeProject ?? "Mulberry Support Team";
     try {
-      // Fully client-side using jspdf (already installed — no extra deps)
-      const { jsPDF } = await import("jspdf");
-
-      const W = 13.33, H = 7.5;
-      const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [W, H] } as any);
-
-      // ── Colour helpers ────────────────────────────────────────────────────────
-      const hex = (h: string) => {
-        const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
-        return [r, g, b] as [number,number,number];
-      };
-      const fill  = (h: string) => { const [r,g,b] = hex(h); doc.setFillColor(r,g,b); };
-      const text  = (h: string) => { const [r,g,b] = hex(h); doc.setTextColor(r,g,b); };
-      const draw  = (h: string) => { const [r,g,b] = hex(h); doc.setDrawColor(r,g,b); };
-      const box   = (h: string, x:number, y:number, w:number, ht:number) => { fill(h); doc.rect(x,y,w,ht,"F"); };
-      const bg    = () => box("#151023", 0, 0, W, H);
-      const txt   = (col: string, size: number, bold: boolean, str: string, x: number, y: number, opts?: any) => {
-        text(col); doc.setFontSize(size); doc.setFont("helvetica", bold ? "bold" : "normal");
-        doc.text(str, x, y, opts);
-      };
-      const hdrLine = (col: string) => { box(col, 0.5, 0.95, 12.3, 0.04); };
-
-      const DARK="#151023", CARD="#1e1a2e", PURP="#7c6ef5", WHITE="#FFFFFF",
-            GRAY="#9b96b8", RED="#e05c5c", AMBER="#f0a500", GREEN="#52b788", BLUE="#4da8da";
-
-      const today = new Date().toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});
-      const proj  = activeProject ?? "Mulberry Support Team";
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PAGE 1 — TITLE
-      // ─────────────────────────────────────────────────────────────────────────
-      bg();
-      txt(PURP, 12, true,  "AbsoluteLabs",        0.5, 0.6);
-      box(PURP, 0.5, 0.7, 1.8, 0.04);
-      txt(WHITE, 40, true,  "AI Delivery Copilot", 0.5, 2.1);
-      txt(PURP,  22, false, "Governance Report",   0.5, 2.85);
-      txt(GRAY,  13, false, `${proj}  ·  ${today}`,0.5, 3.45);
-
-      const statBoxes = [
-        { label:"Total",    value:liveStats.total,    col:PURP  },
-        { label:"Open",     value:liveStats.open,     col:AMBER },
-        { label:"On Hold",  value:liveStats.onHold,   col:BLUE  },
-        { label:"Resolved", value:liveStats.resolved, col:GREEN },
-        { label:"Urgent",   value:liveStats.urgent,   col:RED   },
-      ];
-      statBoxes.forEach((b, i) => {
-        const bx = 0.5 + i * 2.57;
-        // card bg
-        fill(CARD); doc.roundedRect(bx, 5.0, 2.4, 1.8, 0.08, 0.08, "F");
-        // border
-        draw(b.col); doc.setLineWidth(0.02);
-        doc.roundedRect(bx, 5.0, 2.4, 1.8, 0.08, 0.08, "S");
-        txt(b.col, 36, true,  String(b.value), bx + 1.2, 5.95, { align:"center" });
-        txt(GRAY,  10, false, b.label,         bx + 1.2, 6.55, { align:"center" });
-      });
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PAGE 2 — EXECUTIVE SUMMARY
-      // ─────────────────────────────────────────────────────────────────────────
-      doc.addPage();
-      bg();
-      txt(WHITE, 26, true, "Executive Summary", 0.5, 0.78);
-      hdrLine(PURP);
-
-      const openPct = liveStats.total ? Math.round((liveStats.open/liveStats.total)*100) : 0;
-      const resPct  = liveStats.total ? Math.round((liveStats.resolved/liveStats.total)*100) : 0;
-
-      const bullets = [
-        { t:`${liveStats.total} total support tickets tracked for ${proj}`,            c:WHITE },
-        { t:`${liveStats.open} tickets currently open — ${openPct}% of total`,         c:AMBER },
-        { t:`${liveStats.onHold} tickets on hold, pending upstream resolution`,         c:BLUE  },
-        { t:`${liveStats.resolved} tickets resolved — ${resPct}% resolution rate`,      c:GREEN },
-        { t:`${liveStats.urgent} urgent priority tickets requiring immediate action`,   c:RED   },
-        { t:`AI urgency average: ${liveStats.avgUrgency}/100 across open tickets`,     c:GRAY  },
-      ];
-      bullets.forEach((b, i) => {
-        const y = 1.3 + i * 0.67;
-        box(b.c, 0.5, y - 0.15, 0.06, 0.36);
-        txt(b.c, 13, false, b.t, 0.75, y + 0.12);
-      });
-
-      // bar chart
-      const bars = [
-        { label:"Open",     val:liveStats.open,     col:AMBER },
-        { label:"On Hold",  val:liveStats.onHold,   col:BLUE  },
-        { label:"Resolved", val:liveStats.resolved, col:GREEN },
-        { label:"Urgent",   val:liveStats.urgent,   col:RED   },
-      ];
-      const maxV = Math.max(...bars.map(b=>b.val), 1);
-      bars.forEach((b, i) => {
-        const y = 5.1 + i * 0.53;
-        const bw = Math.max((b.val/maxV)*5.5, 0.15);
-        txt(GRAY, 11, false, b.label, 0.5, y + 0.28);
-        box(b.col, 2.1, y, bw, 0.3);
-        txt(b.col, 11, true, String(b.val), 2.2 + bw, y + 0.25);
-      });
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PAGE 3 — OPEN TICKETS
-      // ─────────────────────────────────────────────────────────────────────────
-      doc.addPage();
-      bg();
-      txt(WHITE, 26, true, "Open & Escalated Tickets", 0.5, 0.78);
-      hdrLine(RED);
-
-      const openTix = tickets
-        .filter((t:any) => t.status==="Open" || t.priority==="Urgent")
-        .slice(0, 8);
-
-      if (openTix.length > 0) {
-        // header row
-        box(CARD, 0.4, 1.05, 12.5, 0.48);
-        const cols = [0.5, 2.1, 8.8, 10.1, 11.5];
-        ["Ticket ID","Subject","Priority","Status","Assignee"].forEach((h,i) => {
-          txt(WHITE, 10, true, h, cols[i], 1.38);
-        });
-        openTix.forEach((t:any, i:number) => {
-          const ry = 1.55 + i * 0.5;
-          if (i%2===0) { fill("#1a1630"); doc.rect(0.4, ry-0.1, 12.5, 0.47, "F"); }
-          const pc = t.priority==="Urgent" ? RED : t.priority==="High" ? AMBER : GRAY;
-          doc.setFontSize(9); doc.setFont("helvetica","normal");
-          txt(PURP,  9, false, t.id??"",                          cols[0], ry+0.22);
-          txt(WHITE, 9, false, (t.subject??"").slice(0,48),       cols[1], ry+0.22);
-          txt(pc,    9, true,  t.priority??"Medium",              cols[2], ry+0.22);
-          txt(AMBER, 9, false, t.status??"Open",                  cols[3], ry+0.22);
-          txt(GRAY,  9, false, (t.assignee??"Unassigned").slice(0,18), cols[4], ry+0.22);
-        });
-      } else {
-        txt(GREEN, 20, false, "No open tickets — all clear ✓", W/2, H/2, {align:"center"});
+      const res = await fetch(
+        `${BACKEND}/api/ppt/${period}?project=${encodeURIComponent(proj)}`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Server error" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
       }
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PAGE 4 — RESOLVED TICKETS
-      // ─────────────────────────────────────────────────────────────────────────
-      doc.addPage();
-      bg();
-      txt(WHITE, 26, true, "Recently Resolved Tickets", 0.5, 0.78);
-      hdrLine(GREEN);
-
-      const resTix = tickets
-        .filter((t:any) => ["Resolved","Closed"].includes(t.status))
-        .slice(0, 8);
-
-      if (resTix.length > 0) {
-        box(CARD, 0.4, 1.05, 12.5, 0.48);
-        const cols2 = [0.5, 2.1, 9.5, 11.2];
-        ["Ticket ID","Subject","Priority","Assignee"].forEach((h,i) => {
-          txt(WHITE, 10, true, h, cols2[i], 1.38);
-        });
-        resTix.forEach((t:any, i:number) => {
-          const ry = 1.55 + i * 0.5;
-          if (i%2===0) { fill("#1a1630"); doc.rect(0.4, ry-0.1, 12.5, 0.47, "F"); }
-          txt(PURP, 9, false, t.id??"",                          cols2[0], ry+0.22);
-          txt(WHITE,9, false, (t.subject??"").slice(0,58),       cols2[1], ry+0.22);
-          txt(GRAY, 9, false, t.priority??"Medium",              cols2[2], ry+0.22);
-          txt(GRAY, 9, false, (t.assignee??"Unassigned").slice(0,20), cols2[3], ry+0.22);
-        });
-      } else {
-        txt(GRAY, 18, false, "No resolved tickets in this period.", W/2, H/2, {align:"center"});
-      }
-
-      // ─────────────────────────────────────────────────────────────────────────
-      // PAGE 5 — CLOSING
-      // ─────────────────────────────────────────────────────────────────────────
-      doc.addPage();
-      bg();
-      box(CARD, 0, 2.85, W, 2.0);
-      txt(PURP,  13, true,  "AbsoluteLabs",        0.5, 0.62);
-      txt(WHITE, 40, true,  "AI Delivery Copilot", 0.5, 1.85);
-      txt(GRAY,  13, false, "This governance report was generated automatically by the AI Delivery Copilot.", W/2, 3.4, {align:"center"});
-      txt(GRAY,  13, false, "All data sourced live from Zoho Desk integration.", W/2, 3.85, {align:"center"});
-      txt(GRAY,  10, false, `Generated: ${today}  ·  Project: ${proj}`, W/2, 7.1, {align:"center"});
-
-      // ── Save ─────────────────────────────────────────────────────────────────
-      doc.save(`Synapse-Governance-Report-${proj.replace(/ /g,"-")}.pdf`);
+      const blob    = await res.blob();
+      const url     = URL.createObjectURL(blob);
+      const a       = document.createElement("a");
+      a.href        = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download    = `AbsoluteLabs-${period === "weekly" ? "Weekly" : "Monthly"}-Governance-${dateStr}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
-      console.error("Report generation error:", e);
-      alert("Failed to generate report. Please try again.");
+      alert(`Failed to generate ${period} PPT: ${(e as Error).message}\n\nMake sure the server is running: npm run server`);
     } finally {
       setPptLoading(false);
     }
   }
 
-  const isLive   = status === "connected";
+  const isLive   = fetchSource === "live";
   const visible  = expanded ? tickets : tickets.slice(0, 6);
   // Always compute stats from the full merged list so project tickets are counted
   const liveStats = {
@@ -463,15 +288,49 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
 
   return (
     <div className="space-y-4">
-      {showReport && <ReportModal system="zoho" stats={liveStats} items={tickets} onClose={() => setShowReport(false)} />}
       {selectedTicket && <TicketDetailModal ticket={selectedTicket} onClose={() => setSelectedTicket(null)} />}
+
+      {/* ── Governance Report PPT buttons — TOP PRIORITY ACTION ── */}
+      <div className="rounded-2xl p-4" style={{ background: "rgba(198,193,247,0.06)", border: "1px solid rgba(198,193,247,0.18)" }}>
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4" style={{ color: "#C6C1F7" }} />
+          <span className="text-sm font-semibold" style={{ color: "#C6C1F7" }}>Governance Reports</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full ml-auto" style={{ background: "rgba(198,193,247,0.12)", color: "#9b8ff5" }}>
+            .pptx · ABL format
+          </span>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => downloadGovernancePPT("weekly")}
+            disabled={pptLoading}
+            className="flex-1 inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg,#272437,#C6C1F7 320%)", border: "1px solid rgba(198,193,247,0.4)" }}
+          >
+            {pptLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Weekly Governance Report
+          </button>
+          <button
+            onClick={() => downloadGovernancePPT("monthly")}
+            disabled={pptLoading}
+            className="flex-1 inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg,#272437,#9b8ff5 280%)", border: "1px solid rgba(155,143,245,0.4)" }}
+          >
+            {pptLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Monthly Governance Report
+          </button>
+        </div>
+        <p className="text-[10px] mt-2" style={{ color: "rgba(255,255,255,0.3)" }}>
+          {fetchSource === "live" ? "✓ Synced with live Zoho data" : "Using cached ticket data — start server for live Zoho sync"}
+        </p>
+      </div>
 
       {/* Header */}
       <TabHeader
         subtitle={`${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}`}
         url="https://desk.zoho.in" label="Zoho Desk"
-        isLive={fetchSource === "live"} onReport={() => setShowReport(true)}
+        isLive={isLive} onReport={() => {}}
         system="zoho" stats={liveStats} items={tickets}
+        hideReport
       />
 
       {/* Pipeline status bar */}
@@ -497,19 +356,6 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
           </span>
         )}
       </div>
-
-      {/* PPT Download button */}
-      <button
-        onClick={downloadPPT}
-        disabled={pptLoading}
-        className="w-full inline-flex items-center justify-center gap-2 h-9 px-4 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-        style={{ background: "linear-gradient(135deg,#191723,#C6C1F7 280%)", border: "1px solid rgba(198,193,247,0.35)" }}
-      >
-        {pptLoading
-          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating Report…</>
-          : <><Download className="h-3.5 w-3.5" /> Download Governance Report (.pdf)</>
-        }
-      </button>
 
       {/* Drop-zone hint */}
       <div className="rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs"

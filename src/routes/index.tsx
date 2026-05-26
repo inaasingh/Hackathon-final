@@ -10,6 +10,7 @@ import { Recommendations } from "@/components/dashboard/Recommendations";
 import { ChatAssistant } from "@/components/dashboard/ChatAssistant";
 import { QuickReports } from "@/components/dashboard/QuickReports";
 import { DependencyGraph } from "@/components/dashboard/DependencyGraph";
+import { ImpactPanel } from "@/components/dashboard/ImpactPanel";
 import { IntegrationHub } from "@/components/dashboard/IntegrationHub";
 import { MinecraftPlayground } from "@/components/dashboard/MinecraftPlayground";
 import { DashboardIntro } from "@/components/dashboard/DashboardIntro";
@@ -276,10 +277,12 @@ function Dashboard() {
             <IntegrationHub activeIntegration={activeIntegration} activeProject={activeProject} />
           </div>
 
-          {/* ── 2-COL: EVENT STREAM + DEPENDENCY GRAPH | AI WORKSPACE ── */}
+          {/* ── 2-COL: EVENT STREAM + BLAST RADIUS + GRAPH | AI WORKSPACE ── */}
           <div className="grid grid-cols-5 gap-5 items-start">
             <div className="col-span-3 flex flex-col gap-5" id="event-stream">
               <EventStream onSelect={setSelectedEvent} liveEvents={liveEvents} />
+              {/* Blast Radius — updates every time an event is clicked */}
+              <ImpactPanel selectedEvent={selectedEvent} />
               <DependencyGraph liveEvents={liveEvents} />
               <QuickReports />
             </div>
