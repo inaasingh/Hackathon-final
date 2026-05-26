@@ -66,13 +66,14 @@ const NODES: SNode[] = [
 
 // ── Edges ─────────────────────────────────────────────────────────────────────
 type EStyle = "normal" | "monitor" | "outcome";
-const EDGES: Array<{ from: string; to: string; lbl: string; sty: EStyle }> = [
+const EDGES: Array<{ from: string; to: string; lbl: string; sty: EStyle; healthy?: boolean }> = [
   { from:"azure",   to:"mulesoft", lbl:"deploy trigger",  sty:"normal"  },
   { from:"datadog", to:"mulesoft", lbl:"monitors",        sty:"monitor" },
   { from:"mulesoft",to:"oms",      lbl:"MB20.21 sync",    sty:"normal"  },
   { from:"mulesoft",to:"sfsc",     lbl:"order sync",      sty:"normal"  },
   { from:"mulesoft",to:"receipt",  lbl:"receipt gen",     sty:"normal"  },
-  { from:"mulesoft",to:"partner",  lbl:"partner events",  sty:"normal"  },
+  // Partner feed is healthy baseline — always shown green
+  { from:"mulesoft",to:"partner",  lbl:"partner events ✓",sty:"normal", healthy:true },
   { from:"oms",     to:"jira",     lbl:"auto-incident",   sty:"outcome" },
   { from:"sfsc",    to:"zoho",     lbl:"CRM → tickets",   sty:"outcome" },
 ];
@@ -341,12 +342,17 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
               const a  = nc(fn), b = nc(tn);
 
               const eColor = edgeCol(edge.from, edge.to);
-              const isEdgeActive = !!eColor;
+              // healthy edges always show green, even with no active scenario
+              const isHealthy    = !!edge.healthy && !active;
+              const isEdgeActive = !!eColor || isHealthy;
+              const resolvedColor = isHealthy ? "#52b788" : eColor;
               const edgeId = `e-${edge.from}-${edge.to}`;
 
               // Arrow marker by severity
               let marker = "url(#arr)";
-              if (isEdgeActive) {
+              if (isHealthy) {
+                marker = "url(#arr-g)";
+              } else if (isEdgeActive) {
                 const ti = impact(edge.to);
                 marker = ti?.sev === "critical"   ? "url(#arr-c)"
                        : ti?.sev === "warning"    ? "url(#arr-w)"
@@ -360,10 +366,10 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
               const dy  = b.cy - a.cy;
               const cpy = my - Math.abs(dy) * 0.12 - 6;
 
-              // Monitor edges always dashed; normal edges solid when active
+              // Monitor edges always dashed; healthy + active edges solid
               const dash = (edge.sty === "monitor" || !isEdgeActive) ? "4 3" : "none";
               const strokeCol = isEdgeActive
-                ? eColor!
+                ? resolvedColor!
                 : edge.sty === "monitor"
                   ? "rgba(155,143,245,0.28)"
                   : "rgba(124,110,245,0.2)";
@@ -382,22 +388,24 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
                   />
                   {/* Edge label */}
                   <text x={mx} y={cpy - 5} textAnchor="middle" fontSize="6.5"
-                    fill={isEdgeActive ? `${eColor}bb` : "rgba(124,110,245,0.38)"}
+                    fill={isEdgeActive ? `${resolvedColor}bb` : "rgba(124,110,245,0.38)"}
                     fontFamily="system-ui,sans-serif">
                     {edge.lbl}
                   </text>
                   {/* Pulse dot when active */}
-                  {isEdgeActive && <PulseDot edgeId={edgeId} color={eColor!} />}
+                  {isEdgeActive && <PulseDot edgeId={edgeId} color={resolvedColor!} />}
                 </g>
               );
             })}
 
             {/* ── Nodes ── */}
             {NODES.map(node => {
-              const imp     = impact(node.id);
-              const active_ = isActive(node.id);
-              const dim     = isDimmed(node.id);
-              const nCol    = nodColor(node.id) ?? node.col;
+              const imp      = impact(node.id);
+              const active_  = isActive(node.id);
+              const dim      = isDimmed(node.id);
+              // Partner API is always "healthy green" in idle state
+              const idleGreen = !active && node.id === "partner";
+              const nCol     = idleGreen ? "#52b788" : (nodColor(node.id) ?? node.col);
               const { cx, cy } = nc(node);
 
               return (
@@ -420,25 +428,31 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
                   {/* Card */}
                   <rect
                     x={node.x} y={node.y} width={node.w} height={node.h} rx={10}
-                    fill={active_ ? `${nCol}12` : hovered === node.id ? `${node.col}0a` : "var(--card,#1e1a2e)"}
-                    stroke={active_ ? nCol : dim ? `${node.col}20` : hovered === node.id ? `${node.col}60` : `${node.col}42`}
-                    strokeWidth={active_ ? 2 : 1.5}
+                    fill={(active_ || idleGreen) ? `${nCol}12` : hovered === node.id ? `${node.col}0a` : "var(--card,#1e1a2e)"}
+                    stroke={(active_ || idleGreen) ? nCol : dim ? `${node.col}20` : hovered === node.id ? `${node.col}60` : `${node.col}42`}
+                    strokeWidth={(active_ || idleGreen) ? 2 : 1.5}
                     opacity={dim ? 0.38 : 1}
-                    style={{ transition:"all 0.3s ease", filter:active_ ? "url(#glow-soft)" : "none" }}
+                    style={{ transition:"all 0.3s ease", filter:(active_ || idleGreen) ? "url(#glow-soft)" : "none" }}
                   />
 
-                  {/* Blinking severity dot */}
-                  {active_ && (
+                  {/* Blinking severity dot (active blast) or steady green dot (idle healthy) */}
+                  {(active_ || idleGreen) && (
                     <circle cx={node.x + node.w - 9} cy={node.y + 9} r={5} fill={nCol}>
-                      <animate attributeName="opacity" values="1;0.15;1" dur="0.85s" repeatCount="indefinite" />
+                      {active_ && <animate attributeName="opacity" values="1;0.15;1" dur="0.85s" repeatCount="indefinite" />}
                     </circle>
                   )}
 
-                  {/* Severity badge text inside dot area */}
-                  {active_ && imp && (
+                  {/* Severity badge / healthy check */}
+                  {(active_ && imp) && (
                     <text x={node.x + node.w - 9} y={node.y + 12} textAnchor="middle"
                       fontSize="5" fontWeight="800" fill="white" fontFamily="system-ui,sans-serif">
                       {imp.sev === "critical" ? "!" : imp.sev === "warning" ? "W" : "✓"}
+                    </text>
+                  )}
+                  {idleGreen && (
+                    <text x={node.x + node.w - 9} y={node.y + 12} textAnchor="middle"
+                      fontSize="6" fontWeight="800" fill="white" fontFamily="system-ui,sans-serif">
+                      ✓
                     </text>
                   )}
 
@@ -467,8 +481,8 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
                   {/* Status bar */}
                   <rect
                     x={node.x + 8} y={node.y + node.h - 9}
-                    width={active_ ? node.w - 16 : (node.w - 16) * 0.45} height={3.5} rx={2}
-                    fill={active_ ? nCol : dim ? `${node.col}18` : `${node.col}48`}
+                    width={(active_ || idleGreen) ? node.w - 16 : (node.w - 16) * 0.45} height={3.5} rx={2}
+                    fill={(active_ || idleGreen) ? nCol : dim ? `${node.col}18` : `${node.col}48`}
                     opacity={dim ? 0.3 : 1}
                     style={{ transition:"all 0.45s ease" }}
                   />
