@@ -114,10 +114,10 @@ export function QuickReports() {
                   {r.tag}
                 </span>
               </div>
-              <p className="text-xs font-semibold leading-tight" style={{ color: "#1a1a2e" }}>
+              <p className="text-xs font-semibold leading-tight" style={{ color: "var(--foreground)" }}>
                 {r.title}
               </p>
-              <p className="text-[10px] mt-0.5 leading-tight" style={{ color: "#555570" }}>
+              <p className="text-[10px] mt-0.5 leading-tight" style={{ color: "var(--muted-foreground)" }}>
                 {r.sub}
               </p>
               <div className="mt-2.5 flex items-center gap-2">
@@ -126,7 +126,7 @@ export function QuickReports() {
                 </span>
                 <span
                   className="inline-flex items-center gap-1 text-[10px] font-medium ml-auto"
-                  style={{ color: "#777788" }}
+                  style={{ color: "var(--muted-foreground)" }}
                   onClick={e => { e.stopPropagation(); handleDownload(r.pdf, r.filename); }}
                 >
                   <Download className="h-3 w-3" /> Save

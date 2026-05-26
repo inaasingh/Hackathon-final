@@ -36,7 +36,7 @@ const integrations: {
   { id: "mulesoft",  icon: Cloud,      label: "MuleSoft CloudHub",  url: "https://anypoint.mulesoft.com/cloudhub", color: "#002060", dotColor: "#52b788" },
   { id: "anypoint",  icon: CloudCog,   label: "Anypoint Studio",    url: "https://anypoint.mulesoft.com",          color: "#1976d2", dotColor: "#52b788" },
   { id: "jira",      icon: GitBranch,  label: "Jira",               url: "https://www.atlassian.com/software/jira",color: "#0052cc", dotColor: "#52b788" },
-  { id: "datadog",   icon: BarChart2,  label: "Datadog",            url: "https://app.datadoghq.com",              color: "#774aa4", dotColor: "#52b788" },
+  { id: "salesforce", icon: BarChart2,  label: "Salesforce CRM",     url: "https://login.salesforce.com",           color: "#00a1e0", dotColor: "#52b788" },
   { id: "zoho",      icon: Plug,       label: "Zoho Desk",          url: "https://desk.zoho.in",                   color: "#e05c5c", dotColor: "#52b788" },
 ];
 

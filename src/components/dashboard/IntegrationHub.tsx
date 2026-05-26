@@ -16,7 +16,7 @@ import { generateHealthCheckXLSX } from "@/lib/xlsxHealthReport";
 
 const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
-export type IntegrationId = "zoho" | "mulesoft" | "anypoint" | "jira" | "datadog";
+export type IntegrationId = "zoho" | "mulesoft" | "anypoint" | "jira" | "salesforce";
 
 export const INTEGRATIONS: {
   id: IntegrationId; label: string; shortLabel: string;
@@ -26,7 +26,7 @@ export const INTEGRATIONS: {
   { id: "mulesoft",  label: "MuleSoft CloudHub", shortLabel: "CloudHub",  color: "#002060", bg: "#e8eaf6", url: "https://anypoint.mulesoft.com/cloudhub" },
   { id: "anypoint",  label: "Anypoint Studio",   shortLabel: "Anypoint",  color: "#1976d2", bg: "#e3f2fd", url: "https://anypoint.mulesoft.com"      },
   { id: "jira",      label: "Jira",              shortLabel: "Jira",      color: "#0052cc", bg: "#e6f0ff", url: "https://www.atlassian.com/software/jira" },
-  { id: "datadog",   label: "Datadog",           shortLabel: "Datadog",   color: "#774aa4", bg: "#f3e8ff", url: "https://app.datadoghq.com"          },
+  { id: "salesforce", label: "Salesforce CRM",    shortLabel: "Salesforce", color: "#00a1e0", bg: "#e6f7ff", url: "https://login.salesforce.com"      },
 ];
 
 const priorityCfg: Record<string, { col: string; bg: string }> = {
@@ -1320,94 +1320,165 @@ function JiraTab() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// DATADOG TAB
+// SALESFORCE TAB
 // ══════════════════════════════════════════════════════════════════════════════
-const DATADOG_MONITORS = [
-  { name: "Order API — p95 Latency",     status: "ALERT", value: "1.8s",  threshold: "< 800ms", service: "p-orders-mb-api",     updated: "2m ago"  },
-  { name: "CloudHub CPU Utilisation",    status: "OK",    value: "68%",   threshold: "< 80%",   service: "all-workers",         updated: "1m ago"  },
-  { name: "CloudHub Memory",             status: "OK",    value: "71%",   threshold: "< 80%",   service: "all-workers",         updated: "1m ago"  },
-  { name: "MuleSoft Error Rate",         status: "WARN",  value: "3.8%",  threshold: "< 1%",    service: "s-salesforce-mb-api", updated: "5m ago"  },
-  { name: "Salesforce Connector",        status: "WARN",  value: "1.2s",  threshold: "< 500ms", service: "s-salesforce-mb-api", updated: "8m ago"  },
-  { name: "Inventory Sync Throughput",   status: "OK",    value: "99.8%", threshold: "> 99%",   service: "p-inventory-mb-api",  updated: "3m ago"  },
-  { name: "Payment Gateway Error Rate",  status: "ALERT", value: "12.4%", threshold: "< 0.5%",  service: "e-adyen-mb-api",      updated: "15m ago" },
-  { name: "GCP Data Pipeline Lag",       status: "OK",    value: "0s",    threshold: "< 60s",   service: "s-gcp-ods-mb-api",    updated: "4m ago"  },
+const SF_HEALTH = [
+  { category: "Data Storage Usage",  value: "5%",  used: "500 MB",   total: "10 GB",    detail: "Trending stable · Last 30d avg 4.8%",                                         pct: 5,   status: "OK" },
+  { category: "File Storage Usage",  value: "1%",  used: "102 MB",   total: "10 GB",    detail: "Well within limits · No large attachments detected",                          pct: 1,   status: "OK" },
+  { category: "Big Object Storage",  value: "0%",  used: "0 MB",     total: "1 GB",     detail: "No big object records ingested yet",                                          pct: 0,   status: "OK" },
+  { category: "API Usage (7d)",      value: "4%",  used: "182,400",  total: "5M limit", detail: "Peak 41k/day · No throttling events · REST + Bulk v2",                        pct: 4,   status: "OK" },
+  { category: "Integration",         value: "OK",  used: "6 active", total: "",         detail: "MuleSoft · Zoho Desk · Jira · Anypoint · GCP · Adyen — all healthy",         pct: null, status: "OK" },
+  { category: "Apex Code Review",    value: "OK",  used: "38 classes · 14 triggers", total: "", detail: "Code coverage 87% · 0 critical violations · Last scan 2h ago",       pct: null, status: "OK" },
+  { category: "Flows",               value: "OK",  used: "12 active flows", total: "",  detail: "Screen + Auto-launch · 0 failed interviews in last 7d",                      pct: null, status: "OK" },
 ];
 
-function DatadogTab() {
-  const [services,   setServices]   = useState<any[]>([]);
+const SF_OBJECTS_DETAIL = [
+  { object: "Orders",        records: "14,230", lastSync: "1m ago",  direction: "MuleSoft → SF",  errors: 0,  status: "SYNCED" },
+  { object: "Contacts",      records: "48,920", lastSync: "3m ago",  direction: "SF → MuleSoft",  errors: 0,  status: "SYNCED" },
+  { object: "Products",      records: "3,410",  lastSync: "2m ago",  direction: "Bidirectional",  errors: 0,  status: "SYNCED" },
+  { object: "Cases",         records: "1,872",  lastSync: "18m ago", direction: "Zoho → SF",      errors: 12, status: "WARN"   },
+  { object: "Opportunities", records: "6,005",  lastSync: "5m ago",  direction: "SF → Analytics", errors: 0,  status: "SYNCED" },
+  { object: "Accounts",      records: "9,340",  lastSync: "42m ago", direction: "Bidirectional",  errors: 37, status: "ALERT"  },
+  { object: "Invoices",      records: "22,100", lastSync: "1m ago",  direction: "ERP → SF",       errors: 0,  status: "SYNCED" },
+  { object: "Inventory",     records: "5,880",  lastSync: "4m ago",  direction: "MuleSoft → SF",  errors: 0,  status: "SYNCED" },
+];
+
+function SalesforceTab() {
+  const [connHealth, setConnHealth] = useState<any>(null);
   const [isLive,     setIsLive]     = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [section,    setSection]    = useState<"health" | "objects">("health");
 
   useEffect(() => {
     (async () => {
       try {
         const r = await fetch(`${BACKEND}/health/integrations`);
-        if (r.ok) { const d = await r.json(); setServices(d.services ?? []); setIsLive(true); }
+        if (r.ok) {
+          const d = await r.json();
+          const sf = (d.services ?? []).find((s: any) => s.name === "Salesforce Conn.");
+          setConnHealth(sf ?? null);
+          setIsLive(true);
+        }
       } catch {}
     })();
   }, []);
 
-  const alerts = DATADOG_MONITORS.filter(m => m.status === "ALERT").length;
-  const warns  = DATADOG_MONITORS.filter(m => m.status === "WARN").length;
-  const ok     = DATADOG_MONITORS.filter(m => m.status === "OK").length;
-  const stats  = { total: DATADOG_MONITORS.length, alerts, warns, ok };
+  const alerts = SF_OBJECTS_DETAIL.filter(o => o.status === "ALERT").length;
+  const warns  = SF_OBJECTS_DETAIL.filter(o => o.status === "WARN").length;
+  const ok     = SF_OBJECTS_DETAIL.filter(o => o.status === "SYNCED").length;
+  const stats  = { total: SF_OBJECTS_DETAIL.length, alerts, warns, ok };
 
-  function monitorColor(s: string) {
+  function syncColor(s: string) {
     if (s === "ALERT") return { col: "#e05c5c", bg: "#ffeaea" };
     if (s === "WARN")  return { col: "#f0a500", bg: "#fff7e6" };
     return                    { col: "#52b788", bg: "#edfaf3" };
   }
 
+  const connCol = connHealth
+    ? connHealth.sla === "critical" ? "#e05c5c" : connHealth.sla === "warning" ? "#f0a500" : "#52b788"
+    : "#52b788";
+
   return (
     <div className="space-y-5">
-      {showReport && <ReportModal system="datadog" stats={stats} items={DATADOG_MONITORS} onClose={() => setShowReport(false)} />}
+      {showReport && <ReportModal system="salesforce" stats={stats} items={SF_OBJECTS_DETAIL} onClose={() => setShowReport(false)} />}
 
-      <TabHeader subtitle={`${DATADOG_MONITORS.length} monitors · Infrastructure + APM`} url="https://app.datadoghq.com" label="Datadog"
-        isLive={isLive} onReport={() => setShowReport(true)} system="datadog" stats={stats} items={DATADOG_MONITORS} />
+      <TabHeader subtitle="Org health · Object sync · Connector metrics" url="https://login.salesforce.com" label="Salesforce CRM"
+        isLive={isLive} onReport={() => setShowReport(true)} system="salesforce" stats={stats} items={SF_OBJECTS_DETAIL} />
 
-      {/* Live backend health if available */}
-      {services.length > 0 && (
-        <div className="grid grid-cols-3 gap-2">
-          {services.slice(0, 3).map(s => {
-            const up = parseFloat(s.uptime);
-            const col = up >= 99 ? "#52b788" : up >= 95 ? "#f0a500" : "#e05c5c";
+      {/* Live connector card */}
+      {connHealth && (
+        <div className="rounded-xl px-4 py-3 flex items-center gap-4" style={{ background: `${connCol}0f`, border: `1px solid ${connCol}33` }}>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold" style={{ color: connCol }}>Salesforce Connector — Live Health</p>
+            <p className="text-[10px] mt-0.5" style={{ color: "var(--muted-foreground)" }}>
+              Uptime {connHealth.uptime}% · Latency {connHealth.latency} · Error rate {connHealth.err}
+            </p>
+          </div>
+          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full capitalize" style={{ background: `${connCol}20`, color: connCol }}>
+            {connHealth.sla}
+          </span>
+        </div>
+      )}
+
+      <StatCards cards={[
+        { label: "Objects", value: stats.total, col: "#00a1e0", bg: "#e6f7ff" },
+        { label: "Alert",   value: alerts,      col: "#e05c5c", bg: "#ffeaea" },
+        { label: "Warning", value: warns,       col: "#f0a500", bg: "#fff7e6" },
+        { label: "Synced",  value: ok,          col: "#52b788", bg: "#edfaf3" },
+      ]} />
+
+      {/* Section toggle */}
+      <div className="flex gap-1.5">
+        {(["health", "objects"] as const).map(s => (
+          <button key={s} onClick={() => setSection(s)}
+            className="px-3 py-1 rounded-lg text-[11px] font-semibold transition-all"
+            style={{
+              background: section === s ? "#00a1e020" : "transparent",
+              color:      section === s ? "#00a1e0"   : "var(--muted-foreground)",
+              border:     section === s ? "1.5px solid #00a1e044" : "1.5px solid transparent",
+            }}>
+            {s === "health" ? "Org Health" : "Object Sync"}
+          </button>
+        ))}
+      </div>
+
+      {/* ORG HEALTH */}
+      {section === "health" && (
+        <div className="space-y-2">
+          {SF_HEALTH.map((o, i) => {
+            const sc = syncColor(o.status);
             return (
-              <div key={s.name} className="rounded-xl p-3" style={{ background: "var(--secondary)", border: `1px solid ${col}30` }}>
-                <p className="text-[10px] font-semibold truncate mb-1" style={{ color: "var(--muted-foreground)" }}>{s.name}</p>
-                <p className="text-sm font-bold" style={{ color: col }}>{s.uptime}%</p>
-                <p className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{s.latency}</p>
+              <div key={i} className="rounded-xl px-3 py-3 space-y-1.5 hover:bg-secondary/40 transition"
+                style={{ border: "1px solid rgba(124,110,245,0.07)" }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: sc.bg, color: sc.col }}>{o.status}</span>
+                  <p className="text-xs font-semibold flex-1" style={{ color: "var(--foreground)" }}>{o.category}</p>
+                  <p className="text-xs font-bold" style={{ color: sc.col }}>{o.value}</p>
+                </div>
+                {o.pct !== null && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1 rounded-full" style={{ background: "var(--secondary)" }}>
+                      <div className="h-1 rounded-full" style={{ width: `${o.pct}%`, background: sc.col }} />
+                    </div>
+                    <span className="text-[10px] shrink-0" style={{ color: "var(--muted-foreground)" }}>{o.used} / {o.total}</span>
+                  </div>
+                )}
+                {o.pct === null && o.used && (
+                  <p className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{o.used}</p>
+                )}
+                <p className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{o.detail}</p>
               </div>
             );
           })}
         </div>
       )}
 
-      <StatCards cards={[
-        { label: "Monitors",  value: stats.total,  col: "#774aa4", bg: "#f3e8ff" },
-        { label: "Alerting",  value: alerts,       col: "#e05c5c", bg: "#ffeaea" },
-        { label: "Warning",   value: warns,        col: "#f0a500", bg: "#fff7e6" },
-        { label: "OK",        value: ok,           col: "#52b788", bg: "#edfaf3" },
-      ]} />
-
-      <div className="space-y-1.5">
-        {DATADOG_MONITORS.map((m, i) => {
-          const mc = monitorColor(m.status);
-          return (
-            <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-secondary/40 transition border border-transparent hover:border-border">
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 w-12 text-center" style={{ background: mc.bg, color: mc.col }}>{m.status}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate" style={{ color: "var(--foreground)" }}>{m.name}</p>
-                <p className="text-[10px] mt-0.5" style={{ color: "var(--muted-foreground)" }}>{m.service}</p>
+      {/* OBJECT SYNC */}
+      {section === "objects" && (
+        <div className="space-y-1.5">
+          {SF_OBJECTS_DETAIL.map((o, i) => {
+            const sc = syncColor(o.status);
+            return (
+              <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-secondary/40 transition border border-transparent hover:border-border">
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 w-14 text-center" style={{ background: sc.bg, color: sc.col }}>{o.status}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate" style={{ color: "var(--foreground)" }}>{o.object}</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: "var(--muted-foreground)" }}>{o.direction}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs font-bold" style={{ color: "var(--foreground)" }}>{o.records}</p>
+                  <p className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>records</p>
+                </div>
+                {o.errors > 0 ? (
+                  <span className="text-[10px] font-bold shrink-0 w-16 text-right" style={{ color: "#e05c5c" }}>{o.errors} errors</span>
+                ) : (
+                  <span className="text-[10px] shrink-0 w-16 text-right" style={{ color: "var(--muted-foreground)" }}>{o.lastSync}</span>
+                )}
               </div>
-              <div className="text-right shrink-0">
-                <p className="text-xs font-bold" style={{ color: mc.col }}>{m.value}</p>
-                <p className="text-[10px]" style={{ color: "var(--muted-foreground)" }}>{m.threshold}</p>
-              </div>
-              <span className="text-[10px] shrink-0 w-14 text-right" style={{ color: "var(--muted-foreground)" }}>{m.updated}</span>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1480,7 +1551,7 @@ export function IntegrationHub({ activeIntegration, activeProject }: Props) {
         {activeTab === "mulesoft" && <MuleSoftTab activeProject={activeProject} />}
         {activeTab === "anypoint" && <AnypointTab />}
         {activeTab === "jira"     && <JiraTab />}
-        {activeTab === "datadog"  && <DatadogTab />}
+        {activeTab === "salesforce" && <SalesforceTab />}
       </div>
     </div>
   );
