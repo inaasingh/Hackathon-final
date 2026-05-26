@@ -1,5 +1,5 @@
 // All AI calls go to the local Express backend at port 3001
-const BACKEND = "http://localhost:3001";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 // ── Fallback responses (used when backend is offline) ─────────────
 const FALLBACK_IMPACT = `WHAT CHANGED

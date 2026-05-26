@@ -10,6 +10,8 @@ interface Stats {
   critical: number;
 }
 
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
+
 export function ZohoReport() {
   const [open,       setOpen]       = useState(false);
   const [loading,    setLoading]    = useState(false);
@@ -25,7 +27,7 @@ export function ZohoReport() {
     setTesting(true);
     setConnStatus("idle");
     try {
-      const r = await fetch("http://localhost:3001/zoho/test");
+      const r = await fetch(`${BACKEND}/zoho/test`);
       const d = await r.json();
       if (d.ok) {
         setConnStatus("ok");
@@ -46,7 +48,7 @@ export function ZohoReport() {
     setLoading(true);
     setReport("");
     try {
-      const r = await fetch("http://localhost:3001/zoho/report", { method: "POST" });
+      const r = await fetch(`${BACKEND}/zoho/report`, { method: "POST" });
       const d = await r.json();
       if (d.report) {
         setReport(d.report);

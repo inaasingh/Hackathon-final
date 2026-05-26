@@ -14,7 +14,7 @@ import { PROJECT_TICKETS } from "@/data/projectTickets";
 import { useTicketPipeline } from "@/hooks/useTicketPipeline";
 import { generateHealthCheckXLSX } from "@/lib/xlsxHealthReport";
 
-const BACKEND = "http://localhost:3001";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 export type IntegrationId = "zoho" | "mulesoft" | "anypoint" | "jira" | "datadog";
 

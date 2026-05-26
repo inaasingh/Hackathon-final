@@ -46,7 +46,7 @@ const LazyChart = lazy(() =>
   }))
 );
 
-const BACKEND = "http://localhost:3001";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 // Simulated 7-day uptime trend data per service
 const TREND_DATA = [

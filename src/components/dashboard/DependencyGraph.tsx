@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, AlertTriangle, Activity, RefreshCw, ChevronRight } from "lucide-react";
 
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
+
 // ── Service-flow nodes ────────────────────────────────────────────────────────
 interface ServiceNode {
   id:       string;
@@ -258,7 +260,7 @@ export function DependencyGraph({ liveEvents = [] }: { liveEvents?: any[] }) {
     const affected = BLAST_MAP[source] ?? ["order-api"];
     setActiveNodes(new Set(affected));
     try {
-      const r = await fetch("http://localhost:3001/blast-radius", {
+      const r = await fetch(`${BACKEND}/blast-radius`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ source, sev, summary, affectedNodes: affected }),

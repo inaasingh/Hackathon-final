@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-const BACKEND = "http://localhost:3001";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 // ─── CSS injected once ─────────────────────────────────────────────────────
 const MC_STYLES = `

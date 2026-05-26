@@ -6,7 +6,7 @@ import {
   ThumbsUp, ChevronRight, ArrowRight,
 } from "lucide-react";
 
-const BACKEND = "http://localhost:3001";
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface ChainNode {

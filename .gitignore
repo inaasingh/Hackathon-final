@@ -27,4 +27,8 @@ dist-ssr
 .env.local
 .env.production
 .env*.local
-.env
+.env.development
+
+# Runtime data — may contain sensitive ticket/customer info
+server/ticketStore.json
+ticketStore.json

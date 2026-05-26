@@ -8,6 +8,8 @@ import {
 import { generateZohoReport } from "@/lib/zohoReportPdf";
 import { generateHealthCheckXLSX } from "@/lib/xlsxHealthReport";
 
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
+
 // ── Static mock data (no fetch on load) ──────────────────────────
 const MOCK_TICKETS = [
   { id: "ZD-4821", subject: "Order API — 504 Gateway Timeout on checkout flow",  status: "Open",     priority: "Urgent", dept: "Platform Engineering", assignee: "Rahul Mehta",   age: "2h ago"  },
@@ -97,7 +99,7 @@ export function ZohoDeskReport() {
     // single attempt, short timeout, just re-renders — backend optional
     const ctrl = new AbortController();
     const timer = setTimeout(() => { ctrl.abort(); setRefreshing(false); }, 2500);
-    fetch("http://localhost:3001/api/zoho/report", { signal: ctrl.signal })
+    fetch(`${BACKEND}/api/zoho/report`, { signal: ctrl.signal })
       .then(r => r.json())
       .then(() => { clearTimeout(timer); setRefreshing(false); })
       .catch(() => { clearTimeout(timer); setRefreshing(false); });
