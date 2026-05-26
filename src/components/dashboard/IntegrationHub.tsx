@@ -157,7 +157,7 @@ function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, item
             border: `1px solid ${isLive ? "rgba(82,183,136,0.25)" : "rgba(240,165,0,0.25)"}`,
           }}>
           {isLive ? <Wifi className="h-2.5 w-2.5" /> : <WifiOff className="h-2.5 w-2.5" />}
-          {isLive ? "Live data" : "Mock data"}
+          {isLive ? "Zoho Live" : "Mock data"}
         </span>
       </div>
       <div className="flex items-center gap-2">
@@ -189,7 +189,65 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
     PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []
   );
 
-  // Reset ticket list when project switches
+  // ── Live fetch from backend /api/zoho/tickets ─────────────────────────────
+  const [fetchSource, setFetchSource] = useState<"loading" | "live" | "mock">("loading");
+
+  useEffect(() => {
+    setFetchSource("loading");
+    fetch(`${BACKEND}/api/zoho/tickets`)
+      .then(r => { if (!r.ok) throw new Error("non-ok"); return r.json(); })
+      .then(data => {
+        const raw: any[] = data.tickets ?? [];
+        if (raw.length > 0) {
+          // Normalise backend shape to match what the UI expects
+          const normalised = raw.map((t: any) => ({
+            id:          t.id ?? t.ticketNumber ?? "",
+            subject:     t.subject ?? "",
+            description: t.description ?? t.subject ?? "",
+            status:      t.status ?? "Open",
+            priority:    t.priority ?? "Medium",
+            department:  typeof t.department === "string"
+                           ? { name: t.department }
+                           : (t.department ?? { name: "General" }),
+            contact: {
+              firstName: t.assignee?.split(" ")[0] ?? "Agent",
+              lastName:  t.assignee?.split(" ")[1] ?? "",
+              email:     "",
+            },
+            assignee:    t.assignee ?? "Unassigned",
+            channel:     t.channel ?? "Web",
+            createdTime: t.createdTime ?? new Date().toISOString(),
+            dueDate:     t.dueDate ?? null,
+            aiAnalysis: {
+              urgencyScore: t.priority === "Urgent" ? 90
+                          : t.priority === "High"   ? 72
+                          : t.priority === "Medium" ? 50 : 30,
+              category:    "Support",
+              subCategory: "Ticket",
+              suggestedPriority: t.priority ?? "Medium",
+              pattern:     "",
+              draftResponse: "",
+              riskFlag:    null,
+              estimatedResolutionHours: 4,
+              processedAt: new Date().toISOString(),
+            },
+          }));
+          setProjectBase(normalised);
+          setFetchSource(data.source === "zoho" ? "live" : "mock");
+        } else {
+          // Empty response — keep mock
+          setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
+          setFetchSource("mock");
+        }
+      })
+      .catch(() => {
+        // Server not running — fall back to mock
+        setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
+        setFetchSource("mock");
+      });
+  }, [activeProject]);
+
+  // Also reset when project switches (instant feedback before fetch completes)
   useEffect(() => {
     setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
     setExpanded(false);
@@ -412,7 +470,7 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
       <TabHeader
         subtitle={`${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}`}
         url="https://desk.zoho.in" label="Zoho Desk"
-        isLive={isLive} onReport={() => setShowReport(true)}
+        isLive={fetchSource === "live"} onReport={() => setShowReport(true)}
         system="zoho" stats={liveStats} items={tickets}
       />
 
