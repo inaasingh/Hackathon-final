@@ -14,7 +14,8 @@ import { PROJECT_TICKETS } from "@/data/projectTickets";
 import { useTicketPipeline } from "@/hooks/useTicketPipeline";
 import { generateHealthCheckXLSX } from "@/lib/xlsxHealthReport";
 
-const BACKEND = "http://localhost:3001";
+// Use VITE_BACKEND_URL env var in production (Vercel), fall back to localhost for dev
+const BACKEND = (import.meta as any).env?.VITE_BACKEND_URL || "http://localhost:3001";
 
 export type IntegrationId = "zoho" | "mulesoft" | "anypoint" | "jira" | "datadog";
 

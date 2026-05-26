@@ -27,7 +27,16 @@ const router = createRouter({
  * all of which add overhead and potential conflict on a plain Vite SPA.
  */
 function Root() {
-  const [loggedIn, setLoggedIn] = useState(() => auth.isLoggedIn());
+  const [loggedIn, setLoggedIn] = useState(() => {
+    // Invalidate sessions created before user-profile data was introduced.
+    // If the auth flag is set but no user object is stored, force re-login
+    // so the project-restriction system gets the correct profile.
+    if (auth.isLoggedIn() && !auth.getUser()) {
+      auth.logout();
+      return false;
+    }
+    return auth.isLoggedIn();
+  });
 
   /* Register the sign-out callback so Sidebar can trigger re-render */
   auth.setLogoutHandler(() => setLoggedIn(false));
