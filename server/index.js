@@ -403,7 +403,7 @@ function weekLabel(d)   {
 
 async function generateGovernancePPT(tickets, periodLabel, project) {
   const pptx = new PptxGenJS();
-  pptx.layout = "LAYOUT_CUSTOM";
+  // IMPORTANT: defineLayout MUST come before setting layout
   pptx.defineLayout({ name: "LAYOUT_CUSTOM", width: 13.33, height: 7.5 });
   pptx.layout = "LAYOUT_CUSTOM";
 
@@ -906,8 +906,14 @@ async function handlePptRequest(req, res, days) {
   }
 }
 
-app.post("/api/ppt/weekly",  (req, res) => handlePptRequest(req, res, 7));
-app.post("/api/ppt/monthly", (req, res) => handlePptRequest(req, res, 30));
+app.post("/api/ppt/weekly",  async (req, res) => {
+  try { await handlePptRequest(req, res, 7); }
+  catch (e) { console.error("❌ PPT weekly route error:", e.message); if (!res.headersSent) res.status(500).json({ error: e.message }); }
+});
+app.post("/api/ppt/monthly", async (req, res) => {
+  try { await handlePptRequest(req, res, 30); }
+  catch (e) { console.error("❌ PPT monthly route error:", e.message); if (!res.headersSent) res.status(500).json({ error: e.message }); }
+});
 
 // ─────────────────────────────────────────────────────────────────
 
