@@ -243,91 +243,28 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
     ...projectBase.filter((t: any) => !pipelineIds.has(t.id)),
   ];
 
-  async function downloadPPT() {
+  async function downloadGovernancePPT(period: "weekly" | "monthly") {
     setPptLoading(true);
+    const proj = activeProject ?? "Mulberry Support Team";
     try {
-      const { jsPDF } = await import("jspdf");
-      const W = 13.33, H = 7.5;
-      const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [W, H] } as any);
-      const proj = activeProject ?? "Mulberry Support Team";
-
-      const hex = (h: string): [number,number,number] => {
-        const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16);
-        return [r,g,b];
-      };
-      const fill  = (h: string) => { const [r,g,b] = hex(h); doc.setFillColor(r,g,b); };
-      const stroke= (h: string) => { const [r,g,b] = hex(h); doc.setDrawColor(r,g,b); };
-      const text  = (h: string) => { const [r,g,b] = hex(h); doc.setTextColor(r,g,b); };
-      const txt   = (col: string, size: number, bold: boolean, str: string, x: number, y: number, opts?: any) => {
-        text(col); doc.setFontSize(size); doc.setFont("helvetica", bold ? "bold" : "normal");
-        doc.text(str, x, y, opts);
-      };
-
-      // ── Page 1: Title ──────────────────────────────────────────────────
-      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
-      fill("#1a1a2e"); doc.rect(0,0,W,1.2,"F");
-      txt("#9b8ff5",28,true,"Synapse AI Delivery Copilot",0.5,0.75);
-      txt("#888",14,false,"Governance Report  ·  "+proj,0.5,1.05);
-      txt("#fff",20,true,"Executive Summary",0.5,2.0);
-      const stats = liveStats;
-      const boxes = [
-        { label:"Total Tickets", val:String(stats.total),    col:"#9b8ff5" },
-        { label:"Open",          val:String(stats.open),     col:"#e05c5c" },
-        { label:"On Hold",       val:String(stats.onHold),   col:"#f0a500" },
-        { label:"Resolved",      val:String(stats.resolved), col:"#52b788" },
-        { label:"Urgent",        val:String(stats.urgent),   col:"#e05c5c" },
-        { label:"Avg Urgency",   val:stats.avgUrgency+"%",   col:"#9b8ff5" },
-      ];
-      boxes.forEach((b,i) => {
-        const x = 0.5 + i*2.2, y = 2.5;
-        fill("#1a1a2e"); stroke("#333"); doc.setLineWidth(0.01);
-        doc.roundedRect(x,y,2.0,1.2,0.1,0.1,"FD");
-        txt(b.col,28,true,b.val,x+1.0,y+0.65,{align:"center"});
-        txt("#aaa",10,false,b.label,x+1.0,y+0.95,{align:"center"});
-      });
-      txt("#555",9,false,"Generated "+new Date().toLocaleDateString("en-GB"),0.5,H-0.3);
-      txt("#555",9,false,"AbsoluteLabs · Synapse Platform",W-0.5,H-0.3,{align:"right"});
-
-      // ── Page 2: Open tickets ───────────────────────────────────────────
-      doc.addPage();
-      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
-      txt("#9b8ff5",20,true,"Open Tickets",0.5,0.7);
-      const openT = tickets.filter((t:any) => t.status==="Open" || t.status==="On Hold");
-      openT.slice(0,8).forEach((t:any,i:number) => {
-        const y = 1.1 + i*0.73;
-        const pCol = t.priority==="Urgent"?"#e05c5c":t.priority==="High"?"#f0a500":t.priority==="Medium"?"#9b8ff5":"#52b788";
-        fill("#1a1a2e"); doc.rect(0.5,y,W-1,0.62,"F");
-        fill(pCol); doc.rect(0.5,y,0.04,0.62,"F");
-        txt("#fff",10,true,"#"+t.id,0.65,y+0.22);
-        txt("#ccc",9,false,doc.splitTextToSize(t.subject,9.0)[0],1.3,y+0.22);
-        txt(pCol,8,true,t.priority??"",W-1.5,y+0.22,{align:"right"});
-        txt("#666",8,false,t.status??"",W-1.5,y+0.44,{align:"right"});
-      });
-
-      // ── Page 3: Resolved tickets ───────────────────────────────────────
-      doc.addPage();
-      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
-      txt("#52b788",20,true,"Resolved / Closed",0.5,0.7);
-      const resT = tickets.filter((t:any) => ["Resolved","Closed"].includes(t.status));
-      resT.slice(0,8).forEach((t:any,i:number) => {
-        const y = 1.1 + i*0.73;
-        fill("#1a1a2e"); doc.rect(0.5,y,W-1,0.62,"F");
-        fill("#52b788"); doc.rect(0.5,y,0.04,0.62,"F");
-        txt("#fff",10,true,"#"+t.id,0.65,y+0.22);
-        txt("#ccc",9,false,doc.splitTextToSize(t.subject,9.0)[0],1.3,y+0.22);
-        txt("#52b788",8,true,t.status??"",W-1.5,y+0.22,{align:"right"});
-      });
-
-      // ── Page 4: Closing ────────────────────────────────────────────────
-      doc.addPage();
-      fill("#0f0f1a"); doc.rect(0,0,W,H,"F");
-      txt("#9b8ff5",26,true,"Powered by Synapse",W/2,H/2-0.5,{align:"center"});
-      txt("#555",12,false,"AbsoluteLabs AI Delivery Copilot",W/2,H/2+0.1,{align:"center"});
-      txt("#333",10,false,proj+" · "+new Date().toLocaleDateString("en-GB"),W/2,H/2+0.5,{align:"center"});
-
-      doc.save(`Synapse-Governance-Report-${proj.replace(/ /g,"-")}.pdf`);
+      const res = await fetch(
+        `${BACKEND}/api/ppt/${period}?project=${encodeURIComponent(proj)}`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Server error" }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const blob    = await res.blob();
+      const url     = URL.createObjectURL(blob);
+      const a       = document.createElement("a");
+      a.href        = url;
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.download    = `AbsoluteLabs-${period === "weekly" ? "Weekly" : "Monthly"}-Governance-${dateStr}.pptx`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
-      alert("Failed to generate report: " + (e as Error).message);
+      alert(`Failed to generate ${period} PPT: ${(e as Error).message}\n\nMake sure the server is running: npm run server`);
     } finally {
       setPptLoading(false);
     }
@@ -384,18 +321,33 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
         )}
       </div>
 
-      {/* PPT Download button */}
-      <button
-        onClick={downloadPPT}
-        disabled={pptLoading}
-        className="w-full inline-flex items-center justify-center gap-2 h-9 px-4 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
-        style={{ background: "linear-gradient(135deg,#191723,#C6C1F7 280%)", border: "1px solid rgba(198,193,247,0.35)" }}
-      >
-        {pptLoading
-          ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating PPT…</>
-          : <><Download className="h-3.5 w-3.5" /> Download Governance Report (.pptx)</>
-        }
-      </button>
+      {/* Governance Report PPT buttons */}
+      <div className="flex gap-2">
+        <button
+          onClick={() => downloadGovernancePPT("weekly")}
+          disabled={pptLoading}
+          className="flex-1 inline-flex items-center justify-center gap-2 h-9 px-3 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg,#191723,#C6C1F7 240%)", border: "1px solid rgba(198,193,247,0.35)" }}
+        >
+          {pptLoading
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <Download className="h-3.5 w-3.5" />
+          }
+          Weekly Report
+        </button>
+        <button
+          onClick={() => downloadGovernancePPT("monthly")}
+          disabled={pptLoading}
+          className="flex-1 inline-flex items-center justify-center gap-2 h-9 px-3 rounded-xl text-xs font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+          style={{ background: "linear-gradient(135deg,#191723,#9b8ff5 180%)", border: "1px solid rgba(155,143,245,0.35)" }}
+        >
+          {pptLoading
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <Download className="h-3.5 w-3.5" />
+          }
+          Monthly Report
+        </button>
+      </div>
 
       {/* Drop-zone hint */}
       <div className="rounded-xl px-4 py-2.5 flex items-center gap-2 text-xs"
