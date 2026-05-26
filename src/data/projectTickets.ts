@@ -38,7 +38,7 @@ function tk(
 
 // ── MULBERRY SUPPORT TEAM ─────────────────────────────────────────────────────
 const MULBERRY: any[] = [
-  // ── Live tickets from Zoho Desk (Mulberry Support) ──────────────────────────
+  // ── Live tickets from Zoho Desk (Mulberry Support) — May 2026 ────────────────
   tk("441397", "prod-s-sfsc-order-mb-api : INFO: TECHERROR : Custom Application Notification",
     "OMS to SFSC Order Sync failed for order TSB185361-rcvd. Business exception in MB20.21 — First Name: data value too large (max length=20). Salesforce composite API rejected the payload at Sales_Header creation step.",
     "Open", "High", "Platform Engineering", "Vaibhavi", "Sharma", "v.sharma@mulberry.com", "Email", 2,
@@ -102,54 +102,6 @@ const MULBERRY: any[] = [
       "Resolved: Added referenceId null-check and individual line item verification step to composite API handler.",
       "The missing referenceId on Sales_Line_c for TSB185219-rcvd is resolved. We added a null-check on the composite API response and introduced a verification step to confirm each line item individually before marking the sync complete. Closing ticket.",
       null, 0)),
-
-  tk("ZD-4821", "Order API — 504 Gateway Timeout on checkout flow",
-    "Customers experiencing 504 timeouts on checkout confirmation step. Issue started at 14:00 UTC following deploy of Release-149. Approximately 23% of checkout attempts are failing. Revenue impact is active.",
-    "Open", "Urgent", "Platform Engineering", "Sarah", "Mitchell", "s.mitchell@mulberry.com", "Email", 2,
-    mkAI(94, "Performance", "API Timeout", "Urgent",
-      "Third 504 on checkout this month — Release-149 deploy likely introduced regression.",
-      "Thank you for raising this urgent issue. Our engineering team is investigating the checkout 504 timeout immediately and has initiated a rollback assessment. We will update you within 30 minutes.",
-      "Active revenue loss — ~23% of checkout sessions failing. Escalate to Platform Engineering lead.", 2)),
-
-  tk("ZD-4819", "MuleSoft Payment Gateway circuit breaker tripped — Adyen",
-    "Circuit breaker on the Adyen payment gateway flow has tripped in CloudHub. Payment confirmation is blocked. No payments processed in last 45 minutes. Adyen status page shows no declared outage.",
-    "Open", "High", "Integration Ops", "James", "Thornton", "j.thornton@mulberry.com", "Phone", 3,
-    mkAI(88, "Integration", "Circuit Breaker", "High",
-      "Second circuit breaker trip on Adyen this week — error threshold may need review.",
-      "We have identified the circuit breaker trip on the Adyen payment flow and are investigating the root cause. The team is checking whether the issue is upstream with Adyen or within the MuleSoft connector. Update in 1 hour.",
-      "Payment processing fully blocked — every order attempt failing at payment step.", 3)),
-
-  tk("ZD-4817", "Salesforce CRM sync latency exceeding 1.2s SLA",
-    "Salesforce CRM sync via s-salesforce-mb-api showing p95 latency of 1.2s against 800ms SLA. Customer profile updates delayed, affecting personalisation engine. Datadog WARN alert active.",
-    "On Hold", "High", "CRM Operations", "Emma", "Davies", "e.davies@mulberry.com", "Email", 14,
-    mkAI(72, "Performance", "CRM Latency", "High",
-      "Salesforce latency elevated for 3 consecutive days — connector pool saturation suspected.",
-      "Thank you for flagging this. The CRM sync latency issue is being monitored and the team is reviewing Salesforce connector configuration. We will provide an update by end of business today.",
-      null, 4)),
-
-  tk("ZD-4813", "Inventory sync missing 3 luxury bag SKUs post-migration",
-    "Following Prima ERP migration last weekend, 3 SKUs (Bayswater Bag, Mini Seaton, Iris Bag) are not appearing in inventory sync feed. Stock shows correctly in Prima but not propagating to Manhattan WMS or website.",
-    "Open", "High", "Platform Engineering", "Sarah", "Mitchell", "s.mitchell@mulberry.com", "Email", 26,
-    mkAI(76, "Data Sync", "Inventory Gap", "High",
-      "Post-migration SKU sync gap — likely field mapping change in Prima ERP schema.",
-      "We are investigating the inventory sync discrepancy for the 3 affected SKUs following the Prima migration. The team is comparing source and destination record counts to identify the mapping failure. Update within 2 hours.",
-      "3 hero SKUs showing as out of stock online — potential lost sales on flagship products.", 4)),
-
-  tk("ZD-4810", "MB-066 Recoverable order retry queue backing up — 47 orders",
-    "The MB-RECOVERABLE-ORDERS-RETRY scheduler shows 47 orders stuck in dead-letter queue. Queue depth growing since 08:00. Scheduler is running in CloudHub but no orders are being replayed successfully.",
-    "Open", "Medium", "Integration Ops", "James", "Thornton", "j.thornton@mulberry.com", "Email", 6,
-    mkAI(58, "Integration", "Scheduler Failure", "Medium",
-      "Retry queue depth has grown 3× since last week — possible dead-letter payload schema change.",
-      "The order retry queue backup has been escalated to our integration team who are reviewing the scheduler logs in CloudHub. We will investigate the dead-letter queue payload and provide an update within 4 hours.",
-      null, 6)),
-
-  tk("ZD-4806", "Zigzag returns not processing — 12 authorisations stuck",
-    "12 return authorisations from Zigzag not processed into OMS. MB-061-ZIGZAG-RETURNS-SCHEDULER shows Enabled in CloudHub but no records picked up since 07:00. Customers awaiting refund confirmation.",
-    "In Progress", "Medium", "Returns & Fulfilment", "Claire", "Watkins", "c.watkins@mulberry.com", "Email", 8,
-    mkAI(56, "Integration", "Returns Scheduler", "Medium",
-      "Zigzag scheduler anomaly — similar issue occurred 2 weeks ago after a CloudHub deployment.",
-      "We have identified 12 return authorisations not processed by the Zigzag integration and are investigating the scheduler behaviour in CloudHub. Our team will trigger a manual replay if the root cause cannot be resolved within 2 hours.",
-      null, 4)),
 ];
 
 // ── WREN KITCHENS ─────────────────────────────────────────────────────────────
@@ -469,29 +421,38 @@ const WHITE_CUBE: any[] = [
 
 // ── WOLVERINE SUPPORT TEAM ────────────────────────────────────────────────────
 const WOLVERINE: any[] = [
-  tk("WW-6621", "JOOR wholesale portal orders not importing to SAP — 34 Merrell orders",
-    "Wholesale orders placed through JOOR for Merrell brand not importing into SAP. 34 B2B orders from key accounts stuck in JOOR integration queue. CloudHub JOOR connector returning field mapping error on brand_division attribute introduced in Q1 SAP configuration update.",
-    "Open", "High", "Wholesale Technology", "Brian", "Kowalski", "b.kowalski@wolverineworldwide.com", "Email", 10,
-    mkAI(78, "Integration", "Wholesale Portal", "High",
-      "JOOR field mapping failure — SAP Q1 config introduced brand_division field not reflected in Mule transform.",
-      "We are investigating the JOOR to SAP import failure for the 34 Merrell orders. The team is reviewing the brand_division field mapping in the CloudHub transformation and will apply a hotfix. Affected orders will be manually imported in parallel.",
-      "34 key account wholesale orders stuck — Merrell buyer relationships at risk if not resolved today.", 4)),
+  // Real tickets from Wolverine-Support Team queue — May 2026
+  tk("441175", "Product, Price, Inventory schedulers did not run",
+    "Scheduled CloudHub jobs for Product, Price and Inventory feeds to Wolverine Worldwide downstream systems did not execute during the scheduled run window. SAP data not propagated. Multiple retail and wholesale systems dependent on these feeds are showing stale data. Jeff Doornbos reported no scheduler activity logs in CloudHub since the last maintenance window.",
+    "On Hold", "High", "Platform Engineering", "Jeff", "Doornbos", "jeff.doornbos@wolverineworldwide.com", "Email", 24,
+    mkAI(75, "Integration", "Scheduler Failure", "High",
+      "All three schedulers (Product, Price, Inventory) missed their run — likely CloudHub worker restart or memory issue during maintenance window.",
+      "Thank you for reporting this, Jeff. Our CloudHub team is investigating why the Product, Price and Inventory schedulers did not execute. We are reviewing the CloudHub worker status logs and will trigger manual runs for all three feeds while the root cause is identified. Update within 2 hours.",
+      "Stale product/price/inventory data across Wolverine retail and wholesale systems until schedulers resume.", 4)),
 
-  tk("WW-6619", "Saucony AW26 range missing from SAP — 47 SKUs not created",
-    "Saucony AW26 range (47 SKUs) not loaded into SAP from the PLM system. PLM to SAP sync ran at 03:00 but new styles were not created. Product teams cannot process pre-season orders. Integration log shows parent product not found error for the new AW26 category.",
-    "Open", "Medium", "Product Operations", "Diana", "Walsh", "d.walsh@wolverineworldwide.com", "Email", 22,
-    mkAI(62, "Data Sync", "PLM-SAP Sync", "Medium",
-      "PLM to SAP parent product missing — AW26 category hierarchy may not have been set up in SAP before styles were exported from PLM.",
-      "We are investigating the SAP product creation failure for the Saucony AW26 range. The team is checking the parent product configuration in SAP and will liaise with the product team to ensure the category hierarchy is correctly set up.",
+  tk("441148", "Re: Incident INC0170539 has been assigned to group...",
+    "Incident INC0170539 has been assigned to the Wolverine Worldwide integration support group for investigation and resolution. Initial triage from the service desk indicates a connectivity issue between Wolverine's POS system and the central inventory feed. The integration team is requested to review the MuleSoft CloudHub flow for the POS inventory sync and confirm service restoration timeline.",
+    "On Hold", "Medium", "IT Operations", "Marius", "Dragan", "marius.dragan@wolverineworldwide.com", "Email", 50,
+    mkAI(55, "Incident Management", "Escalation", "Medium",
+      "Reassignment notification — integration team needs to review POS inventory sync flow in CloudHub.",
+      "Thank you, Marius. The integration team has received the INC0170539 reassignment and is reviewing the POS inventory sync flow. We will confirm our investigation findings and estimated resolution time to the assigned group within the SLA window.",
       null, 8)),
 
-  tk("WW-6617", "Salesforce B2B portal provisioning not completing for 3 new retailer accounts",
-    "Three new retailer accounts activated in Salesforce this week do not have B2B wholesale portal access. Automated provisioning flow not executed for new account records created since Monday. Retailers cannot place orders online.",
-    "Open", "Medium", "Sales Operations", "Brian", "Kowalski", "b.kowalski@wolverineworldwide.com", "Email", 56,
-    mkAI(56, "Access Management", "Portal Provisioning", "Medium",
-      "Portal provisioning not triggering for new Salesforce accounts — trigger logic may have a date filter bug.",
-      "We are investigating the portal access provisioning failure for the 3 new retailer accounts. The team will check the Salesforce-triggered CloudHub provisioning flow and manually provision access today.",
-      null, 4)),
+  tk("440914", "NewStore Offline Sales Barcode Lookup",
+    "NewStore POS terminals at Wolverine Worldwide retail locations are unable to perform product barcode lookups when operating in offline mode. In-store staff report that the offline data package appears stale — the last successful sync was recorded on 22 May. Staff cannot process sales without a live internet connection, impacting trading during any connectivity disruption.",
+    "On Hold", "High", "Retail Technology", "Jeff", "Blackham", "jeff.blackham@wolverineworldwide.com", "Email", 120,
+    mkAI(68, "Connectivity", "POS Offline Mode", "High",
+      "Offline barcode lookup failure — offline data package not refreshed since 22 May. CloudHub offline sync job may have silently failed.",
+      "We are investigating the NewStore offline barcode lookup issue reported by Jeff Blackham. The team is checking the offline data package sync job in CloudHub and will push an updated package to the affected terminals. Retail staff will be notified once offline mode is restored.",
+      "Store staff unable to process sales without live internet — impacts trading at all Wolverine retail locations during connectivity outages.", 6)),
+
+  tk("440139", "[P4] Triggered: SAP-to-POS-Inventory_Feed_Full with...",
+    "Datadog alert triggered for SAP-to-POS-Inventory_Feed_Full CloudHub flow. The full inventory feed job from SAP to POS systems has exceeded its expected execution time threshold of 2 hours. The job is currently in progress but has not completed within the monitoring window. Source: Datadog Alerting / AbsoluteLabs monitoring.",
+    "Await Customer", "Low", "Monitoring", "Datadog", "Alerting", "alerts@datadog.com", "API", 290,
+    mkAI(35, "Performance", "Long Running Job", "Low",
+      "SAP full inventory feed running long — possible large data delta since last sync or CloudHub worker resource constraint.",
+      "The Datadog P4 alert for SAP-to-POS-Inventory_Feed_Full has been acknowledged by the AbsoluteLabs monitoring team. The job is still in progress and will be monitored. If it does not complete within the next 30 minutes, the CloudHub worker will be investigated for resource constraints.",
+      null, 2)),
 ];
 
 // ── FURNITURE VILLAGE ─────────────────────────────────────────────────────────
