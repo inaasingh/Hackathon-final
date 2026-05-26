@@ -151,15 +151,23 @@ async function getZohoAccessToken() {
     grant_type:    "refresh_token",
   });
 
-  const res  = await fetch(`${ZOHO_AUTH_BASE}?${params}`, { method: "POST" });
-  const data = await res.json();
+  let data;
+  try {
+    const res = await fetch(`${ZOHO_AUTH_BASE}?${params}`, { method: "POST" });
+    data = await res.json();
+  } catch (err) {
+    throw new Error(`Zoho token network error: ${err.message}`);
+  }
 
   if (!data.access_token) {
+    // Clear any stale token so next request retries fresh
+    cachedToken = null;
+    tokenExpiry = 0;
     throw new Error(`Zoho token error: ${JSON.stringify(data)}`);
   }
 
-  cachedToken  = data.access_token;
-  tokenExpiry  = Date.now() + (Number(data.expires_in) * 1000) - 30_000;
+  cachedToken = data.access_token;
+  tokenExpiry = Date.now() + (Number(data.expires_in) * 1000) - 60_000;
   console.log("🔑 Zoho access token refreshed");
   return cachedToken;
 }
@@ -169,12 +177,24 @@ async function zohoGet(path, query = {}) {
   const qs    = new URLSearchParams(query).toString();
   const url   = `${ZOHO_DESK_BASE}${path}${qs ? "?" + qs : ""}`;
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Zoho-oauthtoken ${token}`,
-      orgId:         ZOHO_ORG_ID,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: {
+        Authorization: `Zoho-oauthtoken ${token}`,
+        orgId:         ZOHO_ORG_ID,
+      },
+    });
+  } catch (err) {
+    throw new Error(`Zoho network error: ${err.message}`);
+  }
+
+  // On 401, clear cached token so next request fetches a fresh one
+  if (res.status === 401) {
+    cachedToken = null;
+    tokenExpiry = 0;
+    throw new Error("Zoho token expired — will refresh on next request");
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -182,6 +202,10 @@ async function zohoGet(path, query = {}) {
   }
   return res.json();
 }
+
+// ── Keep the process alive — never crash on unhandled errors ──────────────────
+process.on("uncaughtException",    err => console.error("❌ Uncaught exception:", err.message));
+process.on("unhandledRejection",   err => console.error("❌ Unhandled rejection:", err));
 
 // ── Mock data (used when credentials are not configured) ──────────
 const MOCK_TICKETS = [
