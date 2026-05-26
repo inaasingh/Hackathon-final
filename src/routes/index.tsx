@@ -139,38 +139,62 @@ function Dashboard() {
           <h1 className="text-base font-semibold tracking-tight">Dashboard</h1>
           <div className="flex items-center gap-2">
 
-            {/* ── Project switcher dropdown ── */}
+            {/* ── Project access indicator ── */}
             <div className="relative">
-              <button
-                onClick={() => setProjectOpen(p => !p)}
-                className="h-8 flex items-center gap-2 px-3 rounded-xl border transition hover:bg-secondary shadow-sm"
-                style={{
-                  background: dark ? "#1a162a" : "#ede8ff",
-                  borderColor: "rgba(124,110,245,0.25)",
-                  minWidth: 180,
-                }}
-              >
-                <FolderOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
-                <span className="text-xs font-medium truncate flex-1 text-left" style={{ color: "var(--foreground)" }}>
-                  {activeProject}
-                </span>
-                {/* Show lock icon for single-project (restricted) users */}
-                {!isAdmin && allowedProjects.length === 1 ? (
-                  <Lock className="h-3 w-3 shrink-0" style={{ color: "#9b8ff5" }} title="Access restricted to your project" />
-                ) : (
+
+              {/* RESTRICTED user: non-clickable badge showing their locked project */}
+              {!isAdmin ? (
+                <div
+                  className="h-8 flex items-center gap-2 px-3 rounded-xl border shadow-sm"
+                  style={{
+                    background: dark ? "#1a162a" : "#ede8ff",
+                    borderColor: "rgba(124,110,245,0.35)",
+                    minWidth: 200,
+                    cursor: "default",
+                  }}
+                >
+                  <Lock className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
+                  <div className="flex flex-col flex-1 min-w-0">
+                    <span className="text-[9px] font-bold uppercase tracking-wide leading-none" style={{ color: "#9b8ff5" }}>
+                      Your Project
+                    </span>
+                    <span className="text-xs font-semibold truncate leading-tight mt-0.5" style={{ color: "var(--foreground)" }}>
+                      {activeProject}
+                    </span>
+                  </div>
+                  <span
+                    className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                    style={{ background: "rgba(124,110,245,0.15)", color: "#9b8ff5" }}
+                  >
+                    RESTRICTED
+                  </span>
+                </div>
+              ) : (
+                /* ADMIN user: full dropdown */
+                <button
+                  onClick={() => setProjectOpen(p => !p)}
+                  className="h-8 flex items-center gap-2 px-3 rounded-xl border transition hover:bg-secondary shadow-sm"
+                  style={{
+                    background: dark ? "#1a162a" : "#ede8ff",
+                    borderColor: "rgba(124,110,245,0.25)",
+                    minWidth: 180,
+                  }}
+                >
+                  <FolderOpen className="h-3.5 w-3.5 shrink-0" style={{ color: "#9b8ff5" }} />
+                  <span className="text-xs font-medium truncate flex-1 text-left" style={{ color: "var(--foreground)" }}>
+                    {activeProject}
+                  </span>
                   <ChevronDown
                     className="h-3 w-3 shrink-0 transition-transform"
                     style={{ color: "#9b8ff5", transform: projectOpen ? "rotate(180deg)" : "rotate(0deg)" }}
                   />
-                )}
-              </button>
+                </button>
+              )}
 
-              {/* Only open dropdown if user has more than 1 project available */}
-              {projectOpen && allowedProjects.length > 1 && (
+              {/* Admin dropdown */}
+              {projectOpen && isAdmin && (
                 <>
-                  {/* Backdrop */}
                   <div className="fixed inset-0 z-30" onClick={() => setProjectOpen(false)} />
-                  {/* Dropdown */}
                   <div
                     className="absolute right-0 top-10 z-40 rounded-2xl shadow-2xl overflow-hidden"
                     style={{
@@ -183,7 +207,7 @@ function Dashboard() {
                   >
                     <div className="px-3 py-2 border-b" style={{ borderColor: "rgba(124,110,245,0.1)" }}>
                       <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "#9b8ff5" }}>
-                        {isAdmin ? "All Projects" : "Your Projects"}
+                        All Projects
                       </p>
                     </div>
                     {allowedProjects.map(p => (
