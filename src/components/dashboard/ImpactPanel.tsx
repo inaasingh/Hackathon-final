@@ -33,12 +33,28 @@ function Node({ x, y, label, tone, big }: any) {
 function Edge({ x1, y1, x2, y2 }: any) {
   return (
     <svg className="absolute inset-0 w-full h-full pointer-events-none">
-      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="oklch(0.7 0.18 270 / 35%)" strokeWidth="1" strokeDasharray="3 3" />
+      <line
+        x1={x1} y1={y1}
+        x2={x2} y2={y2}
+        stroke="oklch(0.7 0.18 270 / 35%)"
+        strokeWidth="1"
+        strokeDasharray="3 3"
+      />
     </svg>
   );
 }
 
-function Card({ icon: Icon, label, value, tone }: { icon: any; label: string; value: string; tone: string }) {
+function Card({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  tone: string;
+}) {
   const tm: Record<string, string> = {
     ai:       "text-ai bg-[oklch(0.72_0.2_295)]/10",
     info:     "text-info bg-info/10",
@@ -62,42 +78,62 @@ export function ImpactPanel({ selectedEvent }: { selectedEvent: any }) {
   const [open, setOpen] = useState(true);
 
   const e = selectedEvent ?? {
-    svc: "Order API", source: "MuleSoft", id: "MULE-2391",
-    sev: "critical", summary: "SLA breach detected — p95 latency 1.8s",
-    conf: 96, docs: ["LLD", "Runbook"],
+    svc: "prod-s-sfsc-order-mb-api",
+    source: "MuleSoft",
+    id: "MULE-441397",
+    sev: "critical",
+    summary: "TECHERROR — OMS to SFSC Order Sync failed. First Name exceeds max length (20 chars)",
+    conf: 94,
+    docs: ["OMS Integration LLD", "SFSC Runbook", "Order Sync Runbook"],
+    customer: "Mulberry",
+    orderRef: "TSB185361-rcvd",
+    assignee: "SE",
+    priority: "P3",
   };
 
   const sevColor = SEV_COLORS[e.sev] ?? SEV_COLORS.info;
-  const docCount = String(e.docs?.length ?? 2);
-  const nodeCount = String(Math.min(e.docs?.length + 1 ?? 3, 5));
+  const docCount  = String(e.docs?.length ?? 3);
+  const nodeCount = String(Math.min((e.docs?.length ?? 3) + 1, 5));
 
+  // Blast radius nodes mapped to real Mulberry MuleSoft API topology
   const relatedNodes = [
-    { x: "15%", y: "25%", label: "Inventory", tone: "warning" },
-    { x: "85%", y: "25%", label: "Pricing",   tone: "info"    },
-    { x: "20%", y: "80%", label: "CRM Sync",  tone: "success" },
-    { x: "80%", y: "80%", label: e.docs?.[0] ?? "LLD", tone: "ai" },
+    { x: "15%", y: "25%", label: "prod-s-oms-mb-api",     tone: "critical" },
+    { x: "85%", y: "25%", label: "Salesforce SFSC",        tone: "critical" },
+    { x: "20%", y: "80%", label: "prod-p-receipt-mb-api",  tone: "warning"  },
+    { x: "80%", y: "80%", label: e.docs?.[0] ?? "OMS LLD", tone: "ai"       },
   ];
 
-  const reasoning = `Detected ${e.sev.toUpperCase()} event on ${e.svc} (${e.id}) via ${e.source}. ${e.summary}. ` +
+  const reasoning =
+    `Detected ${e.sev.toUpperCase()} event on ${e.svc} (${e.id}) via ${e.source}. ` +
+    `${e.summary}. ` +
+    (e.customer ? `Customer: ${e.customer}. ` : "") +
+    (e.orderRef ? `Order ref: ${e.orderRef}. ` : "") +
     `AI confidence: ${e.conf}%. ` +
     `Impacted documents: ${e.docs?.join(", ") ?? "N/A"}. ` +
-    `Recommend reviewing affected systems and updating documentation immediately.`;
+    `Blast radius spans OMS API, Salesforce SFSC, and Receipt API. ` +
+    `Recommend applying First Name field truncation (max 20 chars) to the OMS payload transformer and replaying failed orders.`;
 
   const actions = [
-    `Regenerate docs for ${e.svc}`,
-    `Notify governance owner`,
-    e.sev === "critical" ? "Schedule rollback window 21:00 UTC" : "Monitor for 30 minutes",
+    `Apply field-length fix to ${e.svc} transformer`,
+    `Replay failed orders in CloudHub queue`,
+    e.sev === "critical"
+      ? "Notify Mulberry Platform Team — P2 SLA active"
+      : "Monitor CloudHub retry queue for 30 minutes",
   ];
 
   return (
     <div className="glass rounded-2xl p-5">
+      {/* HEADER */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-sm font-semibold tracking-tight flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-ai" /> What This Means For You
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {e.id} · {e.svc} · <span className={sevColor}>{e.summary.slice(0, 40)}{e.summary.length > 40 ? "…" : ""}</span>
+            {e.id} · {e.svc} ·{" "}
+            <span className={sevColor}>
+              {e.summary.slice(0, 40)}{e.summary.length > 40 ? "…" : ""}
+            </span>
           </p>
         </div>
         <span className="text-[10px] px-2 py-0.5 rounded-full bg-ai/10 text-ai border border-ai/30">
@@ -105,6 +141,7 @@ export function ImpactPanel({ selectedEvent }: { selectedEvent: any }) {
         </span>
       </div>
 
+      {/* BLAST RADIUS MAP */}
       <div className="relative h-44 rounded-xl border border-border bg-background/40 grid-bg overflow-hidden mb-4">
         <Node x="50%" y="50%" label={e.svc} tone={e.sev} big />
         {relatedNodes.map((n, i) => (
@@ -115,13 +152,15 @@ export function ImpactPanel({ selectedEvent }: { selectedEvent: any }) {
         ))}
       </div>
 
+      {/* METRIC CARDS */}
       <div className="grid grid-cols-2 gap-2">
-        <Card icon={FileText}      label="Impacted Docs"    value={docCount}   tone="ai"       />
-        <Card icon={Server}        label="Impacted Systems" value={nodeCount}   tone="info"     />
-        <Card icon={AlertTriangle} label="Downstream Risks" value="2"          tone="critical" />
-        <Card icon={GitBranch}     label="Dependencies"     value="7"          tone="warning"  />
+        <Card icon={FileText}      label="Impacted Docs"    value={docCount}  tone="ai"       />
+        <Card icon={Server}        label="Impacted Systems" value={nodeCount}  tone="info"     />
+        <Card icon={AlertTriangle} label="Downstream Risks" value="2"         tone="critical" />
+        <Card icon={GitBranch}     label="Dependencies"     value="7"         tone="warning"  />
       </div>
 
+      {/* WHY THIS MATTERS */}
       <div className="mt-4 rounded-xl border border-border bg-secondary/30 overflow-hidden">
         <button
           onClick={() => setOpen(!open)}
@@ -143,8 +182,11 @@ export function ImpactPanel({ selectedEvent }: { selectedEvent: any }) {
         )}
       </div>
 
+      {/* RECOMMENDED NEXT STEPS */}
       <div className="mt-4">
-        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">Recommended Next Steps</div>
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
+          Recommended Next Steps
+        </div>
         <div className="space-y-1.5">
           {actions.map((a) => (
             <button
