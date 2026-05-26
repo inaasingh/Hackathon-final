@@ -9,7 +9,6 @@ import { Schedules } from "@/components/dashboard/Schedules";
 import { Recommendations } from "@/components/dashboard/Recommendations";
 import { ChatAssistant } from "@/components/dashboard/ChatAssistant";
 import { QuickReports } from "@/components/dashboard/QuickReports";
-import { DependencyGraph } from "@/components/dashboard/DependencyGraph";
 import { ImpactPanel } from "@/components/dashboard/ImpactPanel";
 import { IntegrationHub } from "@/components/dashboard/IntegrationHub";
 import { MinecraftPlayground } from "@/components/dashboard/MinecraftPlayground";
@@ -281,9 +280,7 @@ function Dashboard() {
           <div className="grid grid-cols-5 gap-5 items-start">
             <div className="col-span-3 flex flex-col gap-5" id="event-stream">
               <EventStream onSelect={setSelectedEvent} liveEvents={liveEvents} />
-              {/* Blast Radius — updates every time an event is clicked */}
               <ImpactPanel selectedEvent={selectedEvent} />
-              <DependencyGraph liveEvents={liveEvents} />
               <QuickReports />
             </div>
             <div className="col-span-2 sticky top-[73px]" id="ai-workspace">
