@@ -177,7 +177,7 @@ function TabHeader({ subtitle, url, label, isLive, onReport, system, stats, item
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ZOHO TAB — Real-time pipeline via WebSocket
+// ZOHO TAB — Real-time pipeline via WebSocket + backend Zoho API
 // ══════════════════════════════════════════════════════════════════════════════
 function ZohoTab({ activeProject }: { activeProject?: string }) {
   const { tickets: pipelineTickets, stats, status, lastEvent, processing } = useTicketPipeline();
@@ -185,22 +185,58 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
   const [showReport,     setShowReport]     = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
   const [pptLoading,     setPptLoading]     = useState(false);
-  const [projectBase,    setProjectBase]    = useState<any[]>(
+
+  // ── Static project base (always available as fallback) ──────────────────────
+  const [projectBase, setProjectBase] = useState<any[]>(
     PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []
   );
 
-  // Reset ticket list when project switches
+  // ── Zoho backend API tickets (live when credentials are set) ─────────────────
+  const [zohoApiTickets, setZohoApiTickets] = useState<any[]>([]);
+  const [zohoSource,     setZohoSource]     = useState<"zoho" | "mock" | "none">("none");
+  const [fetchingZoho,   setFetchingZoho]   = useState(false);
+
+  // Reset + re-fetch whenever the active project changes
   useEffect(() => {
-    setProjectBase(PROJECT_TICKETS[activeProject ?? "Mulberry Support Team"] ?? []);
+    const proj = activeProject ?? "Mulberry Support Team";
+
+    // Reset local state immediately
+    setProjectBase(PROJECT_TICKETS[proj] ?? []);
+    setZohoApiTickets([]);
+    setZohoSource("none");
     setExpanded(false);
     setSelectedTicket(null);
+
+    // Fetch project-specific tickets from the backend
+    setFetchingZoho(true);
+    fetch(`${BACKEND}/api/zoho/tickets?project=${encodeURIComponent(proj)}&limit=50`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.source === "zoho" && Array.isArray(d.tickets) && d.tickets.length > 0) {
+          // Live Zoho data — use it
+          setZohoApiTickets(d.tickets);
+          setZohoSource("zoho");
+        } else {
+          // Mock / no data — rely on PROJECT_TICKETS fallback
+          setZohoApiTickets([]);
+          setZohoSource(d?.source === "mock" ? "mock" : "none");
+        }
+      })
+      .catch(() => { setZohoApiTickets([]); setZohoSource("none"); })
+      .finally(() => setFetchingZoho(false));
   }, [activeProject]);
 
-  // Merge: live pipeline tickets first (deduped), then project base
+  // ── Merge: pipeline (real-time) → zoho API (live) → project static (fallback)
   const pipelineIds = new Set(pipelineTickets.map((t: any) => t.id));
+  const zohoIds     = new Set(zohoApiTickets.map((t: any) => t.id));
   const tickets = [
     ...pipelineTickets,
-    ...projectBase.filter((t: any) => !pipelineIds.has(t.id)),
+    ...zohoApiTickets.filter((t: any) => !pipelineIds.has(t.id)),
+    // Only include static data if we have no live API tickets for this project
+    ...(zohoSource !== "zoho"
+      ? projectBase.filter((t: any) => !pipelineIds.has(t.id) && !zohoIds.has(t.id))
+      : []
+    ),
   ];
 
   async function downloadPPT() {
@@ -222,7 +258,7 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
     }
   }
 
-  const isLive   = status === "connected";
+  const isLive   = status === "connected" || zohoSource === "zoho";
   const visible  = expanded ? tickets : tickets.slice(0, 6);
   // Always compute stats from the full merged list so project tickets are counted
   const liveStats = {
@@ -243,7 +279,11 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
 
       {/* Header */}
       <TabHeader
-        subtitle={`${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}`}
+        subtitle={
+          fetchingZoho
+            ? `Loading ${activeProject ?? "Mulberry Support Team"} tickets…`
+            : `${liveStats.total} tickets · ${activeProject ?? "Mulberry Support Team"}${zohoSource === "zoho" ? " · Live from Zoho" : ""}`
+        }
         url="https://desk.zoho.in" label="Zoho Desk"
         isLive={isLive} onReport={() => setShowReport(true)}
         system="zoho" stats={liveStats} items={tickets}

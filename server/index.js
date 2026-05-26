@@ -126,7 +126,31 @@ const {
   ZOHO_REFRESH_TOKEN,
   ZOHO_ORG_ID,
   ZOHO_REGION = "in",
+
+  // Per-project Zoho department IDs.
+  // Get these from Zoho Desk → Setup → Departments → copy the ID from the URL.
+  ZOHO_DEPT_MULBERRY,
+  ZOHO_DEPT_WOLVERINE,
+  ZOHO_DEPT_CLARKS,
+  ZOHO_DEPT_HARVEY,
+  ZOHO_DEPT_WREN,
+  ZOHO_DEPT_BARBOUR,
+  ZOHO_DEPT_FOOTASYLUM,
 } = process.env;
+
+/**
+ * Maps a dashboard project name → Zoho department ID.
+ * Populate the env vars above with IDs from your Zoho Desk admin panel.
+ */
+const PROJECT_DEPT_IDS = {
+  "Mulberry Support Team":   ZOHO_DEPT_MULBERRY   || "",
+  "Wolverine-Support Team":  ZOHO_DEPT_WOLVERINE  || "",
+  "Clarks Support Team":     ZOHO_DEPT_CLARKS     || "",
+  "Harvey Nichols":          ZOHO_DEPT_HARVEY     || "",
+  "Wren Kitchens":           ZOHO_DEPT_WREN       || "",
+  "Barbour Support":         ZOHO_DEPT_BARBOUR    || "",
+  "FootAsylum Support Team": ZOHO_DEPT_FOOTASYLUM || "",
+};
 
 const ZOHO_AUTH_BASE = `https://accounts.zoho.${ZOHO_REGION}/oauth/v2/token`;
 const ZOHO_DESK_BASE = `https://desk.zoho.${ZOHO_REGION}/api/v1`;
@@ -238,17 +262,28 @@ function buildReport(tickets) {
 }
 
 // ── GET /api/zoho/tickets ─────────────────────────────────────────
+// Query params:
+//   project  - Dashboard project name (e.g. "Mulberry Support Team")
+//   limit    - Max tickets to return (default 50)
+//   status   - Filter by status (e.g. "Open")
 app.get("/api/zoho/tickets", async (req, res) => {
+  const projectName  = req.query.project || "";
+  const departmentId = PROJECT_DEPT_IDS[projectName] || "";
+
   if (!zohoCredentialsSet) {
-    console.log("ℹ️  Zoho credentials not set — returning mock tickets");
-    return res.json({ source: "mock", tickets: MOCK_TICKETS });
+    console.log(`ℹ️  Zoho credentials not set — returning mock tickets (project: ${projectName || "all"})`);
+    // Mock mode: return all mock tickets (frontend will use PROJECT_TICKETS for project-specific data)
+    return res.json({ source: "mock", tickets: MOCK_TICKETS, project: projectName });
   }
 
   try {
     const limit  = req.query.limit  || 50;
     const status = req.query.status || "";
     const query  = { limit };
-    if (status) query.status = status;
+    if (status)       query.status       = status;
+    if (departmentId) query.departmentId = departmentId;
+
+    console.log(`🎫 Fetching Zoho tickets — project: "${projectName}", deptId: "${departmentId || "all"}"`);
 
     const data    = await zohoGet("/tickets", query);
     const tickets = (data.data || []).map(t => ({
@@ -256,17 +291,26 @@ app.get("/api/zoho/tickets", async (req, res) => {
       subject:     t.subject,
       status:      t.status,
       priority:    t.priority || "Medium",
-      department:  t.department?.name || "General",
+      department:  { name: t.department?.name || "General" },
+      contact: {
+        firstName: t.contact?.firstName || "",
+        lastName:  t.contact?.lastName  || "",
+        email:     t.contact?.email     || "",
+      },
       assignee:    t.assignee?.firstName
                    ? `${t.assignee.firstName} ${t.assignee.lastName || ""}`.trim()
                    : "Unassigned",
       createdTime: t.createdTime,
+      modifiedTime: t.modifiedTime || t.createdTime,
       dueDate:     t.dueDate,
       channel:     t.channel || "Web",
+      classification: t.classification || "Technical",
+      isEscalated: t.isEscalated || false,
+      isOverDue:   t.isOverDue   || false,
     }));
 
-    console.log(`✅ Fetched ${tickets.length} Zoho Desk tickets`);
-    res.json({ source: "zoho", tickets });
+    console.log(`✅ Fetched ${tickets.length} Zoho Desk tickets for "${projectName || "all projects"}"`);
+    res.json({ source: "zoho", tickets, project: projectName });
   } catch (err) {
     console.error("❌ Zoho tickets error:", err.message);
     res.status(500).json({ error: err.message, source: "error" });
@@ -275,13 +319,19 @@ app.get("/api/zoho/tickets", async (req, res) => {
 
 // ── GET /api/zoho/report ──────────────────────────────────────────
 app.get("/api/zoho/report", async (req, res) => {
+  const projectName  = req.query.project || "";
+  const departmentId = PROJECT_DEPT_IDS[projectName] || "";
+
   if (!zohoCredentialsSet) {
     console.log("ℹ️  Zoho credentials not set — returning mock report");
     return res.json({ source: "mock", ...buildReport(MOCK_TICKETS) });
   }
 
   try {
-    const data    = await zohoGet("/tickets", { limit: 100 });
+    const query = { limit: 100 };
+    if (departmentId) query.departmentId = departmentId;
+
+    const data    = await zohoGet("/tickets", query);
     const tickets = (data.data || []).map(t => ({
       id:          t.ticketNumber,
       subject:     t.subject,

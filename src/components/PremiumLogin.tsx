@@ -6,8 +6,13 @@
 import React, { useRef, useState, memo } from "react";
 import { Sparkles, ArrowRight, Loader2, Eye, EyeOff, Mail, Lock, User } from "lucide-react";
 import logoSrc from "../assets/logo.png";
+import { authenticateUser } from "@/data/users";
+import type { StoredUser } from "@/lib/auth";
 
-interface Props { onLogin: () => void; }
+interface Props {
+  /** Passes the authenticated user record, or null for social/SSO (admin fallback). */
+  onLogin: (user: StoredUser | null) => void;
+}
 
 /* ── Social icons ─────────────────────────────────────────────── */
 function GoogleIcon() {
@@ -192,9 +197,11 @@ const RightPanel = memo(function RightPanel() {
 /* ── Main export ─────────────────────────────────────────────── */
 export function PremiumLogin({ onLogin }: Props) {
   /* State only changes on button clicks — NEVER on keystrokes */
-  const [tab,     setTab]     = useState<"in"|"up">("in");
-  const [loading, setLoading] = useState(false);
-  const [showPw,  setShowPw]  = useState(false);
+  const [tab,        setTab]        = useState<"in"|"up">("in");
+  const [loading,    setLoading]    = useState(false);
+  const [showPw,     setShowPw]     = useState(false);
+  const [error,      setError]      = useState<string>("");
+  const [showHints,  setShowHints]  = useState(false);
 
   /* Uncontrolled refs — typing = zero React work */
   const emailRef = useRef<HTMLInputElement>(null);
@@ -202,8 +209,39 @@ export function PremiumLogin({ onLogin }: Props) {
   const nameRef  = useRef<HTMLInputElement>(null);
 
   function doLogin() {
+    const email    = emailRef.current?.value?.trim() ?? "";
+    const password = passRef.current?.value ?? "";
+
+    if (!email) {
+      setError("Please enter your email address.");
+      return;
+    }
+
     setLoading(true);
-    setTimeout(onLogin, 650);
+    setError("");
+
+    setTimeout(() => {
+      const user = authenticateUser(email, password);
+      if (user) {
+        onLogin({
+          email:       user.email,
+          displayName: user.displayName,
+          initials:    user.initials,
+          role:        user.role,
+          projects:    user.projects,
+        });
+      } else {
+        setLoading(false);
+        setError("Invalid email or password. See demo accounts below.");
+        setShowHints(true);
+      }
+    }, 650);
+  }
+
+  /** Social / SSO — logs in as all-access admin for demo purposes. */
+  function doSocialLogin() {
+    setLoading(true);
+    setTimeout(() => onLogin(null), 650);
   }
 
   /* Shared input style — defined outside render for stability */
@@ -458,6 +496,34 @@ export function PremiumLogin({ onLogin }: Props) {
                 }
               </button>
 
+              {/* Error */}
+              {error && (
+                <p style={{
+                  marginTop: "10px", fontSize: "12px", color: "#e05c5c",
+                  textAlign: "center", fontWeight: 500,
+                }}>
+                  {error}
+                </p>
+              )}
+
+              {/* Demo credentials hint */}
+              {showHints && (
+                <div style={{
+                  marginTop: "12px", padding: "12px 14px",
+                  background: "rgba(124,110,245,0.06)",
+                  border: "1px solid rgba(124,110,245,0.18)",
+                  borderRadius: "10px", fontSize: "11px",
+                  color: "#5a5375", lineHeight: 1.9,
+                }}>
+                  <p style={{ fontWeight: 700, marginBottom: "4px", color: "#3d3660" }}>
+                    Demo accounts:
+                  </p>
+                  <p>🟣 <strong>v.sharma@mulberry.com</strong> / mulberry123</p>
+                  <p>🔵 <strong>b.kowalski@wolverineworldwide.com</strong> / wolverine123</p>
+                  <p>🟢 <strong>admin@absolutelabs.co</strong> / admin123 (all projects)</p>
+                </div>
+              )}
+
               {/* Divider */}
               <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "20px 0" }}>
                 <div style={{ flex: 1, height: "1px", background: "rgba(124,110,245,0.14)" }}/>
@@ -473,7 +539,7 @@ export function PremiumLogin({ onLogin }: Props) {
                   { label: "GitHub",    Icon: GitHubIcon    },
                 ].map(({ label, Icon }) => (
                   <button key={label} type="button" className="pl-social"
-                    onClick={doLogin}
+                    onClick={doSocialLogin}
                     style={{
                       flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
                       gap: "6px", padding: "10px 8px",

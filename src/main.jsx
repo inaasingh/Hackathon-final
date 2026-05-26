@@ -35,8 +35,20 @@ function Root() {
   if (!loggedIn) {
     return (
       <PremiumLogin
-        onLogin={() => {
-          auth.login();
+        onLogin={(user) => {
+          if (user) {
+            /* Known user — store their profile + project restrictions */
+            auth.loginAs(user);
+          } else {
+            /* Social / SSO fallback — all-project admin access */
+            auth.loginAs({
+              email:       "admin@absolutelabs.co",
+              displayName: "AL Admin",
+              initials:    "AA",
+              role:        "Platform Administrator",
+              projects:    [],
+            });
+          }
           setLoggedIn(true);
         }}
       />
