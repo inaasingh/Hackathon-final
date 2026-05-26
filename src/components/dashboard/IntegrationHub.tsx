@@ -247,26 +247,278 @@ function ZohoTab({ activeProject }: { activeProject?: string }) {
 
   async function downloadGovernancePPT(period: "weekly" | "monthly") {
     setPptLoading(true);
-    const proj = activeProject ?? "Mulberry Support Team";
+    const proj    = activeProject ?? "Mulberry Support Team";
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const now     = new Date();
+    const periodLabel = period === "monthly"
+      ? now.toLocaleString("en-GB", { month: "long", year: "numeric" })
+      : (() => {
+          const s = new Date(now); s.setDate(now.getDate() - 6);
+          const f = (d: Date) => d.toLocaleDateString("en-GB", { day:"numeric", month:"short" });
+          return `Week of ${f(s)} – ${f(now)}`;
+        })();
+
     try {
-      const res = await fetch(
-        `${BACKEND}/api/ppt/${period}?project=${encodeURIComponent(proj)}`,
-        { method: "POST" }
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Server error" }));
-        throw new Error(err.error || `HTTP ${res.status}`);
+      // pptxgenjs works client-side in the browser — no server needed
+      const pptxgen = (await import("pptxgenjs")).default;
+      const pptx = new (pptxgen as any)();
+      pptx.defineLayout({ name: "ABL", width: 13.33, height: 7.5 });
+      pptx.layout = "ABL";
+
+      const C = {
+        dark:"191723", dark2:"272437", purple:"C6C1F7", soft:"EAE9FB",
+        light:"F3F2FF", pink:"FE92C9", cyan:"ACEDF3", green:"4EA72E",
+        orange:"FF9B82", gray:"97999A", white:"FFFFFF", red:"E05C5C",
+      };
+
+      const total    = tickets.length;
+      const open     = tickets.filter((t:any) => t.status === "Open").length;
+      const onHold   = tickets.filter((t:any) => t.status === "On Hold").length;
+      const resolved = tickets.filter((t:any) => ["Resolved","Closed"].includes(t.status)).length;
+      const urgent   = tickets.filter((t:any) => t.priority === "Urgent").length;
+      const inProg   = open + onHold;
+      const openTix  = tickets.filter((t:any) => !["Resolved","Closed"].includes(t.status));
+      const closedTix= tickets.filter((t:any) =>  ["Resolved","Closed"].includes(t.status));
+
+      const footer = (s: any, n: number) => {
+        s.addShape("rect", { x:0, y:7.22, w:13.33, h:0.28, fill:{ color:C.dark2 }, line:{ color:C.dark2 } });
+        s.addText("© 2026 Absolute Retail Consulting LTD. All Rights Reserved.", { x:0.3, y:7.24, w:9, h:0.22, fontSize:7, color:C.gray, fontFace:"Calibri" });
+        s.addText(String(n), { x:12.8, y:7.24, w:0.4, h:0.22, fontSize:7, color:C.gray, fontFace:"Calibri", align:"right" });
+      };
+      const strip = (s: any) =>
+        s.addShape("rect", { x:0, y:0, w:0.12, h:7.5, fill:{ color:C.purple }, line:{ color:C.purple } });
+
+      // ── Slide 1: Cover ──────────────────────────────────────────
+      {
+        const s = pptx.addSlide();
+        s.background = { color: C.dark };
+        s.addShape("rect", { x:0, y:0, w:4.8, h:7.5, fill:{ color:C.dark2 }, line:{ color:C.dark2 } });
+        s.addShape("rect", { x:4.72, y:0, w:0.08, h:7.5, fill:{ color:C.purple }, line:{ color:C.purple } });
+        s.addText("AbsoluteLabs", { x:0.4, y:0.4, w:3.8, h:0.65, fontSize:20, bold:true, color:C.purple, fontFace:"Calibri" });
+        s.addText(`${period === "monthly" ? "Monthly" : "Weekly"} Support`, { x:5.2, y:1.8, w:7.8, h:0.9, fontSize:34, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText("Governance", { x:5.2, y:2.65, w:7.8, h:0.85, fontSize:34, bold:true, color:C.purple, fontFace:"Calibri" });
+        s.addShape("rect", { x:5.2, y:3.55, w:1.4, h:0.05, fill:{ color:C.pink }, line:{ color:C.pink } });
+        s.addText(periodLabel, { x:5.2, y:3.7, w:7.8, h:0.5, fontSize:18, color:C.soft, fontFace:"Calibri" });
+        s.addText(proj, { x:5.2, y:4.25, w:7.8, h:0.35, fontSize:13, color:C.gray, fontFace:"Calibri" });
+        s.addShape("rect", { x:0, y:7.22, w:13.33, h:0.28, fill:{ color:C.dark2 }, line:{ color:C.dark2 } });
+        s.addText("© 2026 Absolute Retail Consulting LTD. All Rights Reserved.", { x:0.3, y:7.24, w:9, h:0.22, fontSize:7, color:C.gray, fontFace:"Calibri" });
       }
-      const blob    = await res.blob();
-      const url     = URL.createObjectURL(blob);
-      const a       = document.createElement("a");
-      a.href        = url;
-      const dateStr = new Date().toISOString().slice(0, 10);
-      a.download    = `AbsoluteLabs-${period === "weekly" ? "Weekly" : "Monthly"}-Governance-${dateStr}.pptx`;
-      a.click();
-      URL.revokeObjectURL(url);
+
+      // ── Slide 2: Agenda ─────────────────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("Agenda", { x:0.4, y:0.3, w:5, h:0.55, fontSize:28, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText("CONTENTS", { x:0.4, y:0.85, w:3, h:0.28, fontSize:10, color:C.gray, fontFace:"Calibri", charSpacing:3 });
+        s.addShape("rect", { x:0.4, y:1.15, w:1.0, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        ["Incident Statistics","MuleSoft — Highlights & Lowlights","Ticket Reviews","In-Progress Issues","Appendices"]
+          .forEach((item, i) => {
+            const y = 1.5 + i * 0.75;
+            s.addShape("rect", { x:0.4, y:y+0.05, w:0.04, h:0.35, fill:{ color:C.purple }, line:{ color:C.purple } });
+            s.addText(`0${i+1}`, { x:0.6, y, w:0.6, h:0.45, fontSize:11, bold:true, color:C.purple, fontFace:"Calibri" });
+            s.addText(item, { x:1.3, y:y+0.05, w:9, h:0.35, fontSize:14, color:C.white, fontFace:"Calibri" });
+          });
+        footer(s, 2);
+      }
+
+      // ── Slide 3: Incident Statistics ────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText(`Overview of Tickets — ${periodLabel}`, { x:0.4, y:0.2, w:12.5, h:0.55, fontSize:22, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText("Incident Statistics", { x:0.4, y:0.75, w:5, h:0.28, fontSize:11, color:C.purple, fontFace:"Calibri", charSpacing:1 });
+        s.addShape("rect", { x:0.4, y:1.05, w:1.2, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        [
+          { label:"Incidents Raised",    val:String(total),    col:C.purple, bg:"1e1a30" },
+          { label:"Tickets Resolved",    val:String(resolved), col:C.cyan,   bg:"18252a" },
+          { label:"P1 / Urgent",         val:String(urgent),   col:C.pink,   bg:"2a1a22" },
+          { label:"In Progress",         val:String(inProg),   col:C.orange, bg:"2a211a" },
+        ].forEach((st, i) => {
+          const x = 0.4 + i * 3.15;
+          s.addShape("rect", { x, y:1.4, w:2.9, h:2.1, fill:{ color:st.bg }, line:{ color:st.col, pt:1 } });
+          s.addText(st.val,   { x, y:1.6,  w:2.9, h:0.9,  fontSize:52, bold:true, color:st.col, fontFace:"Calibri", align:"center" });
+          s.addText(st.label, { x, y:2.6,  w:2.9, h:0.45, fontSize:11, color:C.white, fontFace:"Calibri", align:"center" });
+        });
+        // Priority bar
+        const pris = [
+          { label:"Urgent", count:urgent, col:C.red },
+          { label:"High",   count:tickets.filter((t:any)=>t.priority==="High").length,   col:C.orange },
+          { label:"Medium", count:tickets.filter((t:any)=>t.priority==="Medium").length, col:C.purple },
+          { label:"Low",    count:tickets.filter((t:any)=>t.priority==="Low").length,    col:C.green  },
+        ];
+        s.addText("Priority Breakdown", { x:0.4, y:3.75, w:6, h:0.35, fontSize:12, bold:true, color:C.white, fontFace:"Calibri" });
+        const barTot = pris.reduce((a,p) => a+p.count, 0) || 1;
+        let bx = 0.4;
+        pris.forEach(p => {
+          const bw = (p.count / barTot) * 12.5;
+          if (bw > 0) {
+            s.addShape("rect", { x:bx, y:4.15, w:bw, h:0.38, fill:{ color:p.col }, line:{ color:p.col } });
+            if (bw > 0.8) s.addText(`${p.label} (${p.count})`, { x:bx+0.06, y:4.15, w:bw-0.1, h:0.38, fontSize:8, color:C.dark, fontFace:"Calibri", bold:true });
+            bx += bw;
+          }
+        });
+        pris.forEach((p, i) => {
+          s.addShape("rect", { x:0.4+i*3.1, y:4.65, w:0.18, h:0.18, fill:{ color:p.col }, line:{ color:p.col } });
+          s.addText(`${p.label}: ${p.count}`, { x:0.65+i*3.1, y:4.63, w:2.5, h:0.22, fontSize:9, color:C.white, fontFace:"Calibri" });
+        });
+        footer(s, 3);
+      }
+
+      // ── Slide 4: Highlights & Lowlights ────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("MuleSoft — Highlights & Lowlights", { x:0.4, y:0.2, w:12.5, h:0.55, fontSize:22, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText(`For ${periodLabel}`, { x:0.4, y:0.75, w:5, h:0.28, fontSize:11, color:C.purple, fontFace:"Calibri" });
+        s.addShape("rect", { x:0.4, y:1.05, w:1.2, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        const hi = closedTix.length > 0
+          ? `${closedTix.length} ticket(s) resolved this period. ${closedTix.slice(0,2).map((t:any) => `#${t.id}: ${(t.subject||"").slice(0,50)}.`).join(" ")}`
+          : "No tickets were closed this period. All alerts are actively monitored.";
+        const lo = openTix.length > 0
+          ? openTix.slice(0,3).map((t:any) => `${(t.subject||"").split(":")[0]?.trim()} — ${t.status}, ${t.priority}.`).join(" ")
+          : "No open issues this period.";
+        const ka = openTix.filter((t:any) => ["High","Urgent"].includes(t.priority)).length > 0
+          ? `${openTix.filter((t:any)=>["High","Urgent"].includes(t.priority)).length} high/urgent tickets require attention. ` +
+            openTix.filter((t:any)=>["High","Urgent"].includes(t.priority)).slice(0,2).map((t:any) => `#${t.id}: ${(t.subject||"").slice(0,55)}.`).join(" ")
+          : "No critical key asks at this time.";
+        [
+          { title:"Highlights", text:hi, col:C.cyan,   bg:"183028" },
+          { title:"Lowlights",  text:lo, col:C.pink,   bg:"2a1825" },
+          { title:"Key Asks",   text:ka, col:C.orange, bg:"2a2018" },
+        ].forEach((sec, i) => {
+          const y = 1.3 + i * 1.8;
+          s.addShape("rect", { x:0.4, y, w:12.5, h:1.6, fill:{ color:sec.bg }, line:{ color:sec.col, pt:0.5 } });
+          s.addText(sec.title, { x:0.7, y:y+0.15, w:2.5, h:0.38, fontSize:13, bold:true, color:sec.col, fontFace:"Calibri" });
+          s.addShape("rect", { x:0.7, y:y+0.55, w:0.04, h:0.8, fill:{ color:sec.col }, line:{ color:sec.col } });
+          s.addText(sec.text, { x:0.9, y:y+0.5, w:11.8, h:0.95, fontSize:10, color:C.light, fontFace:"Calibri", valign:"top", wrap:true });
+        });
+        footer(s, 4);
+      }
+
+      // ── Slide 5: Ticket Reviews ─────────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("Ticket Reviews", { x:0.4, y:0.2, w:12.5, h:0.55, fontSize:22, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText(`Snapshot — ${periodLabel}  ·  ${total} total`, { x:0.4, y:0.75, w:10, h:0.28, fontSize:11, color:C.purple, fontFace:"Calibri" });
+        s.addShape("rect", { x:0.4, y:1.05, w:1.2, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        const priC: any = { Urgent:C.red, High:C.orange, Medium:C.purple, Low:C.green };
+        const stC: any  = { Open:C.red, "On Hold":C.orange, Resolved:C.green, Closed:C.green };
+        const hdr = [
+          [{ text:"Ticket #", options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Subject",  options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Priority", options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Status",   options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Assignee", options:{ bold:true, color:C.dark, fill:{ color:C.purple } } }],
+          ...openTix.slice(0,10).map((t:any) => [
+            { text:`#${t.id}`, options:{ color:C.cyan, fontSize:9 } },
+            { text:(t.subject||"").slice(0,65), options:{ color:C.light, fontSize:9 } },
+            { text:t.priority||"", options:{ color:priC[t.priority]||C.white, fontSize:9, bold:true } },
+            { text:t.status||"",   options:{ color:stC[t.status]||C.white, fontSize:9 } },
+            { text:(t.assignee||t.contact?.firstName||"—").slice(0,20), options:{ color:C.gray, fontSize:9 } },
+          ]),
+        ];
+        if (hdr.length > 1) {
+          s.addTable(hdr, { x:0.4, y:1.2, w:12.5, colW:[1.4,5.5,1.3,1.5,2.0], fontFace:"Calibri", border:{ type:"solid", color:"2a2a3a", pt:0.5 }, rowH:0.48, fill:{ color:C.dark2 } });
+        } else {
+          s.addText("No open tickets this period.", { x:0.4, y:3, w:12, h:0.5, fontSize:13, color:C.gray, fontFace:"Calibri", align:"center" });
+        }
+        footer(s, 5);
+      }
+
+      // ── Slide 6: In-Progress Issues ─────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("In-Progress Issues & Change Requests", { x:0.4, y:0.2, w:12.5, h:0.55, fontSize:20, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addShape("rect", { x:0.4, y:0.8, w:1.2, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        const priC: any = { Urgent:C.red, High:C.orange, Medium:C.purple, Low:C.green };
+        const progTix = tickets.filter((t:any) => !["Resolved","Closed"].includes(t.status));
+        const hdr = [
+          [{ text:"S.No",      options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Ticket ID", options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Created",   options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Priority",  options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Subject",   options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Summary",   options:{ bold:true, color:C.dark, fill:{ color:C.purple } } },
+           { text:"Status",    options:{ bold:true, color:C.dark, fill:{ color:C.purple } } }],
+          ...progTix.slice(0,7).map((t:any, i:number) => {
+            const created = t.createdTime ? new Date(t.createdTime).toLocaleDateString("en-GB",{ day:"2-digit", month:"short", year:"numeric" }) : "—";
+            return [
+              { text:String(i+1),               options:{ color:C.gray,   fontSize:8 } },
+              { text:`#${t.id}`,                 options:{ color:C.cyan,   fontSize:8, bold:true } },
+              { text:created,                    options:{ color:C.light,  fontSize:8 } },
+              { text:t.priority||"",             options:{ color:priC[t.priority]||C.white, fontSize:8, bold:true } },
+              { text:(t.subject||"").slice(0,45),options:{ color:C.light,  fontSize:8 } },
+              { text:(t.description||t.subject||"").slice(0,80), options:{ color:C.gray, fontSize:7 } },
+              { text:t.status||"",               options:{ color:C.purple, fontSize:8 } },
+            ];
+          }),
+        ];
+        if (hdr.length > 1) {
+          s.addTable(hdr, { x:0.4, y:1.0, w:12.5, colW:[0.5,1.0,1.0,0.9,2.5,4.6,1.1], fontFace:"Calibri", border:{ type:"solid", color:"2a2a3a", pt:0.5 }, rowH:0.75, fill:{ color:C.dark2 } });
+        } else {
+          s.addText("No in-progress tickets.", { x:0.4, y:3, w:12, h:0.5, fontSize:13, color:C.gray, fontFace:"Calibri", align:"center" });
+        }
+        footer(s, 6);
+      }
+
+      // ── Slide 7: Resolved ───────────────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("Resolved Tickets", { x:0.4, y:0.2, w:12.5, h:0.55, fontSize:22, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText(`${closedTix.length} tickets closed this period`, { x:0.4, y:0.75, w:6, h:0.28, fontSize:11, color:C.green, fontFace:"Calibri" });
+        s.addShape("rect", { x:0.4, y:1.05, w:1.2, h:0.04, fill:{ color:C.green }, line:{ color:C.green } });
+        const priC: any = { Urgent:C.red, High:C.orange, Medium:C.purple, Low:C.green };
+        const hdr = [
+          [{ text:"Ticket #",    options:{ bold:true, color:C.dark, fill:{ color:"3a5a3a" } } },
+           { text:"Subject",     options:{ bold:true, color:C.dark, fill:{ color:"3a5a3a" } } },
+           { text:"Priority",    options:{ bold:true, color:C.dark, fill:{ color:"3a5a3a" } } },
+           { text:"Resolved By", options:{ bold:true, color:C.dark, fill:{ color:"3a5a3a" } } }],
+          ...closedTix.slice(0,10).map((t:any) => [
+            { text:`#${t.id}`,                        options:{ color:C.cyan,  fontSize:9 } },
+            { text:(t.subject||"").slice(0,68),        options:{ color:C.light, fontSize:9 } },
+            { text:t.priority||"",                    options:{ color:priC[t.priority]||C.white, fontSize:9 } },
+            { text:(t.assignee||t.contact?.firstName||"Shwetha Boga").slice(0,25), options:{ color:C.green, fontSize:9 } },
+          ]),
+        ];
+        if (hdr.length > 1) {
+          s.addTable(hdr, { x:0.4, y:1.2, w:12.5, colW:[1.4,6.5,1.5,2.7], fontFace:"Calibri", border:{ type:"solid", color:"1e3a1e", pt:0.5 }, rowH:0.5, fill:{ color:"1a2a1a" } });
+        } else {
+          s.addText("No resolved tickets.", { x:0.4, y:3, w:12, h:0.5, fontSize:13, color:C.gray, fontFace:"Calibri", align:"center" });
+        }
+        footer(s, 7);
+      }
+
+      // ── Slide 8: Appendices ─────────────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark }; strip(s);
+        s.addText("Appendices", { x:0.4, y:0.3, w:8, h:0.65, fontSize:28, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addShape("rect", { x:0.4, y:1.0, w:1.0, h:0.04, fill:{ color:C.purple }, line:{ color:C.purple } });
+        ["Appendix 1 — Support Subscription","Appendix 2 — Ticket Lifecycle",
+         "Appendix 3 — Support Desk Process","Appendix 4 — Severity Levels","Appendix 5 — Escalation Matrix"]
+          .forEach((a, i) => s.addText(`${i+1}.  ${a}`, { x:0.7, y:1.4+i*0.65, w:10, h:0.45, fontSize:13, color:C.light, fontFace:"Calibri" }));
+        s.addText("Support processes are outlined in accordance with the appendices listed above.", { x:0.7, y:5.0, w:10, h:0.6, fontSize:11, color:C.gray, fontFace:"Calibri", italic:true });
+        footer(s, 8);
+      }
+
+      // ── Slide 9: Thank You ──────────────────────────────────────
+      {
+        const s = pptx.addSlide(); s.background = { color: C.dark };
+        s.addShape("rect", { x:0, y:0, w:4.8, h:7.5, fill:{ color:C.dark2 }, line:{ color:C.dark2 } });
+        s.addShape("rect", { x:4.72, y:0, w:0.08, h:7.5, fill:{ color:C.purple }, line:{ color:C.purple } });
+        s.addText("AbsoluteLabs", { x:0.4, y:0.4, w:3.8, h:0.65, fontSize:20, bold:true, color:C.purple, fontFace:"Calibri" });
+        s.addText("Thank you", { x:5.2, y:2.2, w:7.8, h:1.0, fontSize:40, bold:true, color:C.white, fontFace:"Calibri" });
+        s.addText("Reach your potential — today.", { x:5.2, y:3.15, w:7.8, h:0.5, fontSize:16, color:C.purple, fontFace:"Calibri", italic:true });
+        s.addShape("rect", { x:5.2, y:3.72, w:1.4, h:0.05, fill:{ color:C.pink }, line:{ color:C.pink } });
+        s.addText("Our address", { x:0.4, y:5.5, w:4.0, h:0.3, fontSize:10, bold:true, color:C.gray, fontFace:"Calibri" });
+        s.addText("77 Fulham Palace Road, The Foundry, London W6 8AF", { x:0.4, y:5.85, w:4.0, h:0.55, fontSize:10, color:C.light, fontFace:"Calibri" });
+        s.addText("Phone & Email", { x:0.4, y:6.5, w:4.0, h:0.3, fontSize:10, bold:true, color:C.gray, fontFace:"Calibri" });
+        s.addText("+44 (020) 45424426  ·  contact@absolutelabs.co", { x:0.4, y:6.82, w:4.2, h:0.25, fontSize:9, color:C.light, fontFace:"Calibri" });
+        s.addShape("rect", { x:0, y:7.22, w:13.33, h:0.28, fill:{ color:C.dark2 }, line:{ color:C.dark2 } });
+        s.addText("© 2026 Absolute Retail Consulting LTD. All Rights Reserved.", { x:0.3, y:7.24, w:9, h:0.22, fontSize:7, color:C.gray, fontFace:"Calibri" });
+      }
+
+      // ── Save ────────────────────────────────────────────────────
+      await pptx.writeFile({ fileName: `AbsoluteLabs-${period === "weekly" ? "Weekly" : "Monthly"}-Governance-${dateStr}.pptx` });
+
     } catch (e) {
-      alert(`Failed to generate ${period} PPT: ${(e as Error).message}\n\nMake sure the server is running: npm run server`);
+      alert(`Failed to generate PPT: ${(e as Error).message}`);
     } finally {
       setPptLoading(false);
     }
